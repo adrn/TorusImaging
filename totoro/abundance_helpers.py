@@ -6,7 +6,7 @@ def elem_to_label(elem, dollar=True):
     ----------
     elem : str
         The input column name. This should be a string like 'MG_FE' or 'mg_fe'.
-    dollar : bool, optional
+    dollar : bool (optional)
         Controls whether or not to wrap the output label in inline math dollar
         signs, $.
 

@@ -1,6 +1,10 @@
+# Standard library
 from collections import defaultdict
 import pickle
+
+# Third-party
 import astropy.coordinates as coord
+import astropy.table as at
 import astropy.units as u
 import numpy as np
 from scipy.interpolate import interp1d
@@ -15,11 +19,11 @@ __all__ = [
 
 
 class AbundanceTorusMaschine:
-    def __init__(self, aaf, tree_K=64, sinusoid_K=2):
+    def __init__(self, data, tree_K=64, sinusoid_K=2):
         """
         Parameters
         ----------
-        aaf : `astropy.table.Table`
+        data : `~astropy.table.QTable`
             Table of actions, angles, and abundances.
         tree_K : int (optional)
             The number of neighbors used to estimate the action-local
@@ -29,49 +33,44 @@ class AbundanceTorusMaschine:
             abundance anomaly variations with angle.
         """
 
-        self.aaf = aaf
+        self.data = at.QTable(data, copy=False)
 
-        # config
+        # TODO: take defaults from config file
         self.tree_K = int(tree_K)
         self.sinusoid_K = int(sinusoid_K)
 
-    #     def get_theta_z_anomaly(self, elem_name, action_unit=30*u.km/u.s*u.kpc):
-    #         action_unit = u.Quantity(action_unit)
-
-    #         # Actions without units:
-    #         X = self.aaf['actions'].to_value(action_unit)
-    #         angz = coord.Angle(self.aaf['angles'][:, 2]).wrap_at(360*u.deg).radian
-
-    #         # element abundance
-    #         elem = self.aaf[elem_name]
-    #         elem_errs = self.aaf[f"{elem_name}_ERR"]
-    #         ivar = 1 / elem_errs**2
-
-    #         tree = cKDTree(X)
-    #         dists, idx = tree.query(X, k=self.tree_K+1)
-
-    #         # compute action-local abundance anomaly
-    #         errs = np.sqrt(1 / np.sum(ivar[idx[:, 1:]], axis=1))
-    #         means = np.sum(elem[idx[:, 1:]] * ivar[idx[:, 1:]], axis=1) * errs**2
-
-    #         d_elem = elem - means
-    #         d_elem_errs = np.sqrt(elem_errs**2 + errs**2)
-    # #         d_elem_errs = np.full_like(d_elem, 0.04)  # MAGIC NUMBER
-
-    #         return angz, d_elem, d_elem_errs
-
-    def get_theta_z_anomaly(
-        self, elem_name, action_unit=30 * u.km / u.s * u.kpc
+    def get_theta_anomaly(
+        self, elem_name, angle_index, action_unit=30 * u.km / u.s * u.kpc
     ):
+        """
+        Compute the mean abundance anomaly for the given abundance ratio column
+        name as a function of the specified angle coordinate.
+
+        Parameters
+        ----------
+        elem_name : str
+            The column name of the abundance ratio.
+        angle_index : int
+            The index specifying which angle coordinate to use. 0=R, 1=phi, 2=z
+        action_unit : unit-like, quantity-like (optional)
+            The unit to convert the actions to when constructing the KD tree
+            used to find action-space neighbors.
+
+        Returns
+        -------
+        angle :
+
+        """
         action_unit = u.Quantity(action_unit)
 
         # Actions without units:
-        X = self.aaf["actions"].to_value(action_unit)
-        angz = coord.Angle(self.aaf["angles"][:, 2]).wrap_at(360 * u.deg).radian
+        X = self.data["actions"].to_value(action_unit)
+        angles = coord.Angle(self.data["angles"]).wrap_at(360 * u.deg)
 
         # element abundance
-        elem = self.aaf[elem_name]
-        elem_errs = self.aaf[f"{elem_name}_ERR"]
+        elem = self.data[elem_name]
+        # TODO: need to read error column format from config file
+        elem_errs = self.data[f"{elem_name}_ERR"]
 
         tree = cKDTree(X)
         dists, idx = tree.query(X, k=self.tree_K + 1)
@@ -81,13 +80,14 @@ class AbundanceTorusMaschine:
         x = np.einsum("nij,nj->ni", dx, xhat)
         y = elem[idx[:, 1:]]
 
+        # The fix for steep gradients: see Appendix of PW+2021
         w = np.sum(x ** 2, axis=1)[:, None] - x * np.sum(x, axis=1)[:, None]
         means = np.sum(y * w, axis=1) / np.sum(w, axis=1)
 
         d_elem = np.array(elem - means)
         d_elem_errs = np.array(elem_errs)
 
-        return angz, d_elem, d_elem_errs
+        return angles, d_elem, d_elem_errs
 
     def get_M(self, x):
         M = np.full((len(x), 1 + 2 * self.sinusoid_K), np.nan)

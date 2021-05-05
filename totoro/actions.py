@@ -1,6 +1,5 @@
 """
-Helper functions for computing actions using the O2GF method introduced in
-Sanders & Binney 2014.
+Helper functions for computing actions using different action solving methods.
 """
 
 # Third-party
