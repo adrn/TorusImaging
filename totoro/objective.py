@@ -60,7 +60,8 @@ class TorusImagingObjective:
                 pot_grid, mhalos = pickle.load(f)
 
         self._mhalo_interp = interp1d(pot_grid, mhalos, kind='cubic',
-                                      bounds_error=False, fill_value='extrapolate')
+                                      bounds_error=False,
+                                      fill_value='extrapolate')
 
     def get_mw_potential(self, mdisk_f, disk_hz):
         mhalo = self._mhalo_interp(mdisk_f) * fiducial_mdisk
