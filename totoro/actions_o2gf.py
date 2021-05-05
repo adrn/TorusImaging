@@ -10,19 +10,21 @@ import gala.integrate as gi
 import gala.dynamics as gd
 
 
-def get_o2gf_aaf(potential, w0, N_max=10, dt=1*u.Myr, n_periods=128):
+def get_o2gf_aaf(potential, w0, N_max=10, dt=1 * u.Myr, n_periods=128):
     """Wrapper around the O2GF action solver in Gala that fails more gracefully
 
     This returns actions, angles, and frequencies for the input phase-space
     position estimated for the specified potential.
     """
-    aaf_units = {'actions': u.km/u.s*u.kpc,
-                 'angles': u.degree,
-                 'freqs': 1/u.Gyr}
+    aaf_units = {
+        "actions": u.km / u.s * u.kpc,
+        "angles": u.degree,
+        "freqs": 1 / u.Gyr,
+    }
 
     # First integrate a little bit of the orbit with Leapfrog to estimate
     # the orbital period
-    test_orbit = potential.integrate_orbit(w0, dt=2*u.Myr, t1=0, t2=1*u.Gyr)
+    test_orbit = potential.integrate_orbit(w0, dt=2 * u.Myr, t1=0, t2=1 * u.Gyr)
     P_guess = test_orbit.estimate_period()
 
     if np.isnan(P_guess):
@@ -30,9 +32,12 @@ def get_o2gf_aaf(potential, w0, N_max=10, dt=1*u.Myr, n_periods=128):
 
     # Integrate the orbit with a high-order integrator for many periods
     orbit = potential.integrate_orbit(
-        w0, dt=dt,
-        t1=0, t2=n_periods * P_guess,
-        Integrator=gi.DOPRI853Integrator)
+        w0,
+        dt=dt,
+        t1=0,
+        t2=n_periods * P_guess,
+        Integrator=gi.DOPRI853Integrator,
+    )
 
     # Use the Sanders & Binney action solver:
     try:
