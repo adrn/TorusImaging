@@ -1,0 +1,40 @@
+# Compiled files
+*.py[co]
+*.a
+*.o
+*.so
+__pycache__
+
+# Other generated files
+*/version.py
+htmlcov
+.coverage
+MANIFEST
+
+# Sphinx
+docs/api
+docs/_build
+docs/*/_*
+
+# Packages/installer info
+*.egg
+*.egg-info
+dist
+build
+eggs
+.eggs
+parts
+bin
+var
+sdist
+develop-eggs
+.installed.cfg
+distribute-*.tar.gz
+pip-wheel-metadata/
+
+# Other
+.*.swp
+*~
+
+# Mac OSX
+.DS_Store
