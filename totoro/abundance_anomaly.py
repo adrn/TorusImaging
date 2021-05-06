@@ -12,13 +12,13 @@ from scipy.spatial import cKDTree
 from scipy.stats import binned_statistic
 
 __all__ = [
-    "AbundanceTorusMaschine",
+    "AbundanceAnomalyMaschine",
     "run_bootstrap_coeffs",
     "get_cos2th_zerocross",
 ]
 
 
-class AbundanceTorusMaschine:
+class AbundanceAnomalyMaschine:
     def __init__(self, data, tree_K=64, sinusoid_K=2):
         """
         Parameters
@@ -58,7 +58,9 @@ class AbundanceTorusMaschine:
 
         Returns
         -------
-        angle :
+        angles : `~astropy.units.Quantity`
+        elem_anomaly : ndarray
+        elem_anomaly_error : ndarray
 
         """
         action_unit = u.Quantity(action_unit)
@@ -89,17 +91,25 @@ class AbundanceTorusMaschine:
 
         return angles, d_elem, d_elem_errs
 
-    def get_M(self, x):
-        M = np.full((len(x), 1 + 2 * self.sinusoid_K), np.nan)
+    def get_M(self, angle):
+        """
+        Construct the design matrix
+        """
+        M = np.full((len(angle), 1 + 2 * self.sinusoid_K), np.nan)
         M[:, 0] = 1.0
 
         for n in range(self.sinusoid_K):
-            M[:, 1 + 2 * n] = np.cos((n + 1) * x)
-            M[:, 2 + 2 * n] = np.sin((n + 1) * x)
+            M[:, 1 + 2 * n] = np.cos((n + 1) * angle)
+            M[:, 2 + 2 * n] = np.sin((n + 1) * angle)
 
         return M
 
-    def get_coeffs(self, M, y, yerr):
+    def get_coeffs(self, angle, y, yerr):
+        """
+        Internal function to compute maximum likelihood sin/cos term
+        coefficients for the input
+        """
+        M = self.get_M(angle.to_value(u.radian))
         Cinv_diag = 1 / yerr ** 2
         MT_Cinv = M.T * Cinv_diag[None]
         MT_Cinv_M = MT_Cinv @ M
@@ -108,21 +118,35 @@ class AbundanceTorusMaschine:
         return coeffs, coeffs_cov
 
     def get_coeffs_for_elem(self, elem_name):
+        """
+        Retrieve maximum likelihood sin/cos term coefficients for the element
+        """
         tz, d_elem, d_elem_errs = self.get_theta_z_anomaly(elem_name)
-        M = self.get_M(tz)
-        return self.get_coeffs(M, d_elem, d_elem_errs)
+        return self.get_coeffs(tz, d_elem, d_elem_errs)
 
     def get_binned_anomaly(self, elem_name, theta_z_step=5 * u.deg):
         """
+        Retrieve the binned mean abundance anomaly for the specified abundance
+        ratio column name
+
+        Parameters
+        ----------
+        elem_name : str
+            The column name of the abundance ratio.
         theta_z_step : `astropy.units.Quantity` [angle] (optional)
-            The bin step size for the vertical angle bins. This is only
-            used in methods if `statistic != 'mean'`.
+            The bin step size for the vertical angle bins.
+
+        Returns
+        -------
+        bin_centers : `~numpy.ndarray`
+        mean_abundance_deviation : `~numpy.ndarray`
+        mean_abundance_deviation_error : `~numpy.ndarray`
         """
-        theta_z_step = coord.Angle(theta_z_step)
-        angz_bins = np.arange(0, 2 * np.pi + 1e-4, theta_z_step.to_value(u.rad))
+        step = coord.Angle(theta_z_step).to_value(u.rad)
+        angz_bins = np.arange(0, 2 * np.pi + step, step)
         theta_z, d_elem, d_elem_errs = self.get_theta_z_anomaly(elem_name)
         d_elem_ivar = 1 / d_elem_errs ** 2
-        #         d_elem_ivar = np.full_like(d_elem, 1 / 0.04**2)  # MAGIC NUMBER
+        # d_elem_ivar = np.full_like(d_elem, 1 / 0.04**2)  # MAGIC NUMBER ??
 
         stat1 = binned_statistic(
             theta_z, d_elem * d_elem_ivar, bins=angz_bins, statistic="sum"
@@ -160,7 +184,7 @@ def run_bootstrap_coeffs(
         bs_coeffs = []
         for k in range(bootstrap_K):
             bootstrap_idx = np.random.choice(len(aaf), size=len(aaf))
-            atm = AbundanceTorusMaschine(aaf[bootstrap_idx])
+            atm = AbundanceAnomalyMaschine(aaf[bootstrap_idx])
             coeffs, _ = atm.get_coeffs_for_elem(elem_name)
             bs_coeffs.append(coeffs)
 
