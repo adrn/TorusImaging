@@ -4,7 +4,6 @@ import pickle
 
 # Third-party
 import astropy.coordinates as coord
-import astropy.table as at
 import astropy.units as u
 import numpy as np
 from scipy.interpolate import interp1d
@@ -15,16 +14,18 @@ __all__ = [
     "AbundanceAnomalyMaschine",
     "run_bootstrap_coeffs",
     "get_cos2th_zerocross",
+    "ZeroCrossWorker",
 ]
 
 
 class AbundanceAnomalyMaschine:
-    def __init__(self, data, tree_K=64, sinusoid_K=2):
+    def __init__(self, actions, tree_K=64, sinusoid_K=2):
         """
         Parameters
         ----------
-        data : `~astropy.table.QTable`
-            Table of actions, angles, and abundances.
+        actions : quantity-like
+            The value of the actions for the sample of stars. This should have shape
+            ``(n_stars, n_actions)`` where ``n_actions`` is at most 3.
         tree_K : int (optional)
             The number of neighbors used to estimate the action-local
             mean abundances.
@@ -32,64 +33,66 @@ class AbundanceAnomalyMaschine:
             The number of cos/sin terms in the sinusoid fit to the
             abundance anomaly variations with angle.
         """
-
-        self.data = at.QTable(data, copy=False)
-
-        # TODO: take defaults from config file
+        self.actions = u.Quantity(actions)
         self.tree_K = int(tree_K)
         self.sinusoid_K = int(sinusoid_K)
+        self._cache = dict()
 
-    def get_theta_anomaly(
-        self, elem_name, angle_index, action_unit=30 * u.km / u.s * u.kpc
-    ):
+    def get_mean_abundance_anomaly(self, elem, elem_err):
         """
-        Compute the mean abundance anomaly for the given abundance ratio column
-        name as a function of the specified angle coordinate.
+        Compute the mean abundance anomaly for the given abundance ratio as a
+        function of the specified angle coordinate.
 
         Parameters
         ----------
-        elem_name : str
-            The column name of the abundance ratio.
-        angle_index : int
-            The index specifying which angle coordinate to use. 0=R, 1=phi, 2=z
-        action_unit : unit-like, quantity-like (optional)
-            The unit to convert the actions to when constructing the KD tree
-            used to find action-space neighbors.
+        actions : quantity-like
+            The value of the actions for the sample of stars. This should have shape
+            ``(n_stars, n_actions)`` where ``n_actions`` is at most 3.
+        elem : array-like
+            The element abundance data for the sample of stars.
+        elem_err : array-like
+            The element abundance uncertainties.
 
         Returns
         -------
-        angles : `~astropy.units.Quantity`
-        elem_anomaly : ndarray
-        elem_anomaly_error : ndarray
+        elem_anomaly : `numpy.ndarray`
+        elem_anomaly_error : numpy.ndarray`
 
         """
-        action_unit = u.Quantity(action_unit)
 
         # Actions without units:
-        X = self.data["actions"].to_value(action_unit)
-        angles = coord.Angle(self.data["angles"]).wrap_at(360 * u.deg)
+        X = self.actions.value
 
-        # element abundance
-        elem = self.data[elem_name]
-        # TODO: need to read error column format from config file
-        elem_errs = self.data[f"{elem_name}_ERR"]
+        if "action_neighbors_idx" not in self._cache:
+            # Construct the tree for all actions to find neighbors
+            tree = cKDTree(X)
+            _, idx = tree.query(X, k=self.tree_K + 1)
+            self._cache["action_neighbors_idx"] = idx
 
-        tree = cKDTree(X)
-        dists, idx = tree.query(X, k=self.tree_K + 1)
+            xhat = np.mean(X[idx[:, 1:]], axis=1) - X
+            dx = X[idx[:, 1:]] - X[:, None]
+            x = np.einsum("nij,nj->ni", dx, xhat)
 
-        xhat = np.mean(X[idx[:, 1:]], axis=1) - X
-        dx = X[idx[:, 1:]] - X[:, None]
-        x = np.einsum("nij,nj->ni", dx, xhat)
+            self._cache["action_neighbors_x"] = x
+
+        else:
+            idx = self._cache["action_neighbors_idx"]
+            x = self._cache["action_neighbors_x"]
+
         y = elem[idx[:, 1:]]
 
-        # The fix for steep gradients: see Appendix of PW+2021
+        # The fix for steep gradients: see Appendix of Price-Whelan et al. 2021
         w = np.sum(x ** 2, axis=1)[:, None] - x * np.sum(x, axis=1)[:, None]
+        # TODO: this line might be wrong!! Weighting by inverse-variance as well to
+        # account for the element abundance uncertainties
+        w = w * 1 / elem_err[:, None] ** 2
         means = np.sum(y * w, axis=1) / np.sum(w, axis=1)
+        mean_vars = 1 / np.sum(1 / elem_err ** 2)
 
-        d_elem = np.array(elem - means)
-        d_elem_errs = np.array(elem_errs)
+        d_elem = np.asarray(elem - means)
+        d_elem_errs = np.sqrt(np.asarray(elem_err ** 2 + mean_vars))
 
-        return angles, d_elem, d_elem_errs
+        return d_elem, d_elem_errs
 
     def get_M(self, angle):
         """
@@ -104,11 +107,14 @@ class AbundanceAnomalyMaschine:
 
         return M
 
-    def get_coeffs(self, angle, y, yerr):
+    @u.quantity_input
+    def get_coeffs(self, angle: u.radian, elem, elem_err):
         """
         Internal function to compute maximum likelihood sin/cos term
         coefficients for the input
         """
+        y, yerr = self.get_mean_abundance_anomaly(elem, elem_err)
+
         M = self.get_M(angle.to_value(u.radian))
         Cinv_diag = 1 / yerr ** 2
         MT_Cinv = M.T * Cinv_diag[None]
@@ -117,22 +123,13 @@ class AbundanceAnomalyMaschine:
         coeffs_cov = np.linalg.inv(MT_Cinv_M)
         return coeffs, coeffs_cov
 
-    def get_coeffs_for_elem(self, elem_name):
+    def get_binned_anomaly(self, angle, elem, elem_err, theta_z_step=5 * u.deg):
         """
-        Retrieve maximum likelihood sin/cos term coefficients for the element
-        """
-        tz, d_elem, d_elem_errs = self.get_theta_z_anomaly(elem_name)
-        return self.get_coeffs(tz, d_elem, d_elem_errs)
-
-    def get_binned_anomaly(self, elem_name, theta_z_step=5 * u.deg):
-        """
-        Retrieve the binned mean abundance anomaly for the specified abundance
-        ratio column name
+        Retrieve the binned mean abundance anomaly for the specified angle and
+        abundance ratio. Mainly used for visualization.
 
         Parameters
         ----------
-        elem_name : str
-            The column name of the abundance ratio.
         theta_z_step : `astropy.units.Quantity` [angle] (optional)
             The bin step size for the vertical angle bins.
 
@@ -144,15 +141,19 @@ class AbundanceAnomalyMaschine:
         """
         step = coord.Angle(theta_z_step).to_value(u.rad)
         angz_bins = np.arange(0, 2 * np.pi + step, step)
-        theta_z, d_elem, d_elem_errs = self.get_theta_z_anomaly(elem_name)
+        d_elem, d_elem_errs = self.get_mean_abundance_anomaly(elem, elem_err)
         d_elem_ivar = 1 / d_elem_errs ** 2
-        # d_elem_ivar = np.full_like(d_elem, 1 / 0.04**2)  # MAGIC NUMBER ??
 
+        # TODO: somehow incorporate intrinsic spread in d_elem here (in PW21
+        # eyeballed to be ~0.04)
+        # d_elem_ivar = np.full_like(d_elem, 1 / 0.04**2)  # MAGIC NUMBER
+
+        angle_rad = angle.to_value(u.radian)
         stat1 = binned_statistic(
-            theta_z, d_elem * d_elem_ivar, bins=angz_bins, statistic="sum"
+            angle_rad, d_elem * d_elem_ivar, bins=angz_bins, statistic="sum"
         )
         stat2 = binned_statistic(
-            theta_z, d_elem_ivar, bins=angz_bins, statistic="sum"
+            angle_rad, d_elem_ivar, bins=angz_bins, statistic="sum"
         )
 
         binx = 0.5 * (angz_bins[:-1] + angz_bins[1:])
