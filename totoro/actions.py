@@ -9,6 +9,8 @@ import astropy.units as u
 import numpy as np
 import gala.dynamics as gd
 import gala.integrate as gi
+import gala.potential as gp
+from gala.units import galactic
 
 # This project
 from .config import rsun as ro, vcirc as vo
@@ -53,15 +55,13 @@ def get_o2gf_aaf(potential, w0, N_max=10, dt=1 * u.Myr, n_periods=128):
     return aaf
 
 
-def get_staeckel_aaf(galpy_potential, w, delta=None, gala_potential=None):
+def get_staeckel_aaf(potential, w, delta=None):
     from galpy.actionAngle import actionAngleStaeckel
 
     if delta is None:
-        if gala_potential is None:
-            raise ValueError(
-                "If deltas not specified, you must specify " "gala_potential."
-            )
-        delta = gd.get_staeckel_fudge_delta(gala_potential, w)
+        delta = gd.get_staeckel_fudge_delta(potential, w)
+
+    galpy_potential = potential.to_galpy_potential()
 
     o = w.to_galpy_orbit(ro, vo)
     aAS = actionAngleStaeckel(pot=galpy_potential, delta=delta)
@@ -72,5 +72,58 @@ def get_staeckel_aaf(galpy_potential, w, delta=None, gala_potential=None):
         "freqs": np.squeeze(aaf[3:6]) * vo / ro,
         "angles": coord.Angle(np.squeeze(aaf[6:]) * u.rad),
     }
-    aaf = at.Table({k: v.T for k, v in aaf.items()})
+    aaf = at.QTable({k: v.T for k, v in aaf.items()})
     return aaf
+
+
+def get_agama_aaf(potential, w, **kwargs):
+    from totoro.potential_helpers import gala_to_agama_potential
+    import agama
+
+    if isinstance(potential, gp.PotentialBase):
+        agama_pot = gala_to_agama_potential(potential)
+    else:
+        agama_pot = potential
+
+    kwargs.setdefault("interp", False)
+    actFinder = agama.ActionFinder(agama_pot, **kwargs)
+    agama_w = np.vstack(
+        (w.xyz.to_value(u.kpc), w.v_xyz.decompose(galactic).value)
+    ).T
+
+    if not kwargs["interp"]:
+        actions, angles, freqs = actFinder(agama_w, angles=True)
+
+        # order in each is: R, z, phi
+        aaf = {
+            "actions": np.stack(
+                (actions[:, 0], actions[:, 2], actions[:, 1])  # R  # phi  # z
+            ).T
+            * u.kpc
+            * u.kpc
+            / u.Myr,
+            "angles": np.stack(
+                (angles[:, 0], angles[:, 2], angles[:, 1])  # R  # phi  # z
+            ).T
+            * u.radian,
+            "freqs": np.stack(
+                (freqs[:, 0], freqs[:, 2], freqs[:, 1])  # R  # phi  # z
+            ).T
+            * u.rad
+            / u.Myr,
+        }
+
+    else:
+        actions = actFinder(agama_w)
+
+        # order in each is: R, z, phi
+        aaf = {
+            "actions": np.stack(
+                (actions[:, 0], actions[:, 2], actions[:, 1])  # R  # phi  # z
+            ).T
+            * u.kpc
+            * u.kpc
+            / u.Myr
+        }
+
+    return at.QTable(aaf)

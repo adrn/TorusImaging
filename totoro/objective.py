@@ -1,121 +1,126 @@
-import pickle
+import inspect
 
+# Third-party
 import astropy.coordinates as coord
-import astropy.table as at
 import astropy.units as u
 import gala.dynamics as gd
-import gala.potential as gp
 import numpy as np
-from scipy.interpolate import interp1d
 from scipy.optimize import minimize
-from tqdm import tqdm
 
-from .data import APOGEEDataset
-from .config import galcen_frame, cache_path
-from .potentials import fiducial_mdisk, get_mw_potential, get_equivalent_galpy
-from .actions_staeckel import get_staeckel_aaf
-from .atm import AbundanceTorusMaschine
+# This project
+from totoro.actions import get_agama_aaf
+from totoro.abundance_anomaly import AbundanceAnomalyMaschine
 
 
-class TorusImagingObjective:
-    def __init__(self, dataset, elem_name, tree_K=64):
-        self.c = dataset.c
+class BaseOrbitalTorusImaging:
+    pass
 
-        # Select out the bare minimum columns:
-        # err_name = dataset._elem_err_fmt.format(elem_name=elem_name)
-        # HACK: all datasets have elem names and errors like APOGEE
-        err_name = APOGEEDataset._elem_err_fmt.format(elem_name=elem_name)
-        self.t = dataset.t[dataset._id_column, elem_name, err_name]
 
-        mask = np.isfinite(self.t[elem_name])
-        self.t = self.t[mask]
-        self.c = self.c[mask]
+class ClassicalOrbitalTorusImaging(BaseOrbitalTorusImaging):
+    def __init__(
+        self,
+        skycoord,
+        elem,
+        elem_err,
+        potential_func,
+        angle_idx=2,
+        tree_K=64,
+        frozen=None,
+    ):
+        """
+        Parameters
+        ----------
+        data : data-like
+            Must have a `get_skycoord()` method
+        """
 
-        self.elem_name = elem_name
+        self.skycoord = coord.SkyCoord(skycoord).icrs
+        self.elem = np.asarray(elem)
+        self.elem_err = np.asarray(elem_err)
 
-        self._vsun = galcen_frame.galcen_v_sun.d_xyz
+        if not callable(potential_func):
+            raise ValueError("TODO")
+        self.potential_func = potential_func
 
-        self._init_potential()
+        # TODO: this is a bad interface...
+        self.angle_idx = int(angle_idx)
 
-        self.tree_K = int(tree_K)
+        if frozen is None:
+            frozen = dict()
+        self.frozen = frozen
 
-    def _init_potential(self):
-        path = cache_path / "potential-mhalo-interp.pkl"
-        if not path.exists():
-            print("Computing potential mhalo grid...")
+        self._galcen_par_names = ["z_sun", "vx_sun", "vy_sun", "vz_sun"]
+        self._galcen_par_units = [u.pc, u.km / u.s, u.km / u.s, u.km / u.s]
 
-            pot_grid = np.arange(0.35, 1.79 + 1e-3, 0.04)
-            mhalos = []
-            for mdisk_f in tqdm(pot_grid):
-                pot = get_mw_potential(mdisk_f * fiducial_mdisk)
-                mhalos.append(pot["halo"].parameters["m"] / fiducial_mdisk)
-            mhalos = np.squeeze(mhalos)
+        sig = inspect.signature(self.potential_func)
+        self._pot_par_names = list(sig.parameters.keys())
 
-            with open(path, "wb") as f:
-                pickle.dump((pot_grid, mhalos), f)
+        self._par_names = self._galcen_par_names + self._pot_par_names
 
-        else:
-            with open(path, "rb") as f:
-                pot_grid, mhalos = pickle.load(f)
+    def unpack_pars(self, par_list):
+        par_dict = {}
+        i = 0
+        for key in self._par_names:
+            if key in self.frozen:
+                par_dict[key] = self.frozen[key]
+            else:
+                par_dict[key] = par_list[i]
+                i += 1
 
-        self._mhalo_interp = interp1d(
-            pot_grid,
-            mhalos,
-            kind="cubic",
-            bounds_error=False,
-            fill_value="extrapolate",
-        )
+        return par_dict
 
-    def get_mw_potential(self, mdisk_f, disk_hz):
-        mhalo = self._mhalo_interp(mdisk_f) * fiducial_mdisk
-        mdisk = mdisk_f * fiducial_mdisk
-        return gp.MilkyWayPotential(
-            disk=dict(m=mdisk, b=disk_hz), halo=dict(m=mhalo)
-        )
+    def pack_pars(self, par_dict):
+        parvec = []
+        for i, key in enumerate(self._par_names):
+            if key not in self.frozen:
+                parvec.append(par_dict[key])
+        return np.array(parvec)
 
-    def get_atm_w0(self, zsun, vzsun, mdisk_f, disk_hz):
-        # get galcen frame for zsun, vzsun
-        vsun = self._vsun.copy()
-        vsun[2] = vzsun * u.km / u.s
+    def get_galcen_frame(self, z_sun, vx_sun, vy_sun, vz_sun):
+        v_sun = u.Quantity([vx_sun, vy_sun, vz_sun]).to(u.km / u.s)
         galcen_frame = coord.Galactocentric(
-            z_sun=zsun * u.pc, galcen_v_sun=vsun
+            z_sun=z_sun, galcen_v_sun=v_sun, galcen_distance=8.122 * u.kpc
         )
-        galcen = self.c.transform_to(galcen_frame)
-        w0 = gd.PhaseSpacePosition(galcen.data)
+        return galcen_frame
 
-        # get galpy potential for this mdisk_f
-        pot = self.get_mw_potential(mdisk_f, disk_hz)
-        galpy_pot = get_equivalent_galpy(pot)
-        aaf = get_staeckel_aaf(galpy_pot, w=w0, gala_potential=pot)
-        aaf = at.QTable(at.hstack((aaf, self.t)))
+    def compute_actions_angles(self, pot_pars, galcen_frame):
+        pot = self.potential_func(**pot_pars)
+        galcen = self.skycoord.transform_to(galcen_frame)
 
-        atm = AbundanceTorusMaschine(aaf, tree_K=self.tree_K)
-        return atm, w0, pot
+        w = gd.PhaseSpacePosition(galcen.data)
+        w = gd.Orbit(w.pos, w.vel)
 
-    def get_coeffs(self, zsun, vzsun, mdisk_f, disk_hz):
-        atm, *_ = self.get_atm_w0(zsun, vzsun, mdisk_f, disk_hz)
-        coeff, coeff_cov = atm.get_coeffs_for_elem(self.elem_name)
-        return coeff
+        aaf = get_agama_aaf(pot, w)
+
+        return aaf["actions"], aaf["angles"]
+
+    def get_coeffs(self, pars):
+        pot_pars = {k: pars[k] for k in self._pot_par_names}
+        galcen_pars = {
+            k: pars[k] * uu
+            for k, uu in zip(self._galcen_par_names, self._galcen_par_units)
+        }
+
+        galcen_frame = self.get_galcen_frame(**galcen_pars)
+        actions, angles = self.compute_actions_angles(pot_pars, galcen_frame)
+
+        maschine = AbundanceAnomalyMaschine(actions)
+
+        # TODO: control in init which angle to use here!
+        coeff, coeff_cov = maschine.get_coeffs(
+            angles[:, self.angle_idx], self.elem, self.elem_err
+        )
+
+        return coeff, coeff_cov
 
     def __call__(self, p):
-        zsun, vzsun, mdisk_f, disk_hz = p
+        pars = self.unpack_pars(p)
+        coeff, _ = self.get_coeffs(pars)
 
-        if not 0.4 < mdisk_f < 1.8:
-            return np.inf
-
-        if not 0 < disk_hz < 2.0:
-            return np.inf
-
-        coeff = self.get_coeffs(zsun, vzsun, mdisk_f, disk_hz)
         val = coeff[1] ** 2 + coeff[2] ** 2 + coeff[3] ** 2
         return val
 
-    def minimize(self, x0=None, **kwargs):
+    def minimize(self, x0, **kwargs):
         kwargs.setdefault("method", "nelder-mead")
-
-        if x0 is None:
-            x0 = [20.8, 7.78, 1.0, 0.28]  # Fiducial values
-
         res = minimize(self, x0=x0, **kwargs)
-
         return res

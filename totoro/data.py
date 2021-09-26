@@ -5,13 +5,6 @@ from matplotlib.path import Path
 import numpy as np
 from pyia import GaiaData
 
-from .config import (
-    apogee_parent_filename,
-    galah_parent_filename,
-    cache_path,
-    plot_path,
-)
-
 
 class Dataset:
 
@@ -181,7 +174,7 @@ class APOGEEDataset(Dataset):
     )
 
     def _init_mask(self):
-        aspcap_bitmask = np.sum(2 ** np.array([7, 23]))  # STAR_WARN  # STAR_BAD
+        aspcap_bitmask = np.sum(2 ** np.array([7, 23]))  # STAR_WARN, STAR_BAD
         quality_mask = (self.t["SNR"] > 20) & (
             (self.t["ASPCAPFLAG"] & aspcap_bitmask) == 0
         )
@@ -256,100 +249,3 @@ class GALAHDataset(Dataset):
 
         else:
             return (~low_alpha) & (self.t["FE_H"] > -1)
-
-
-apogee = APOGEEDataset(apogee_parent_filename)
-galah = GALAHDataset(galah_parent_filename)
-
-teff_ref = -382.5 * apogee.t["FE_H"] + 4607
-rc_logg_max = 0.0018 * (apogee.t["TEFF"] - teff_ref) + 2.4
-
-datasets = {
-    "apogee-rgb-loalpha": apogee.filter(
-        {"LOGG": (1, 3.4), "TEFF": (3500, 6500), "FE_H": (-3, 1)},
-        low_alpha=True,
-    ),
-    "apogee-rc-loalpha": apogee.filter(
-        {"LOGG": (1.9, rc_logg_max), "TEFF": (4200, 5400), "FE_H": (-3, 1)},
-        low_alpha=True,
-    ),
-    "apogee-rgb-hialpha": apogee.filter(
-        {"LOGG": (1, 3.4), "TEFF": (3500, 6500), "FE_H": (-3, 1)},
-        low_alpha=False,
-    ),
-    "apogee-ms-loalpha": apogee.filter(
-        {"LOGG": (3.75, 5), "TEFF": (5000, 6000), "FE_H": (-3, 1)},
-        low_alpha=True,
-    ),
-    "galah-rgb-loalpha": galah.filter(
-        {"logg": (1, 3.5), "teff": (3500, 5500), "FE_H": (-3, 1)},
-        low_alpha=True,
-    ),
-    "galah-ms-loalpha": galah.filter(
-        {"logg": (3.5, 5), "teff": (5000, 6000), "FE_H": (-3, 1)},
-        low_alpha=True,
-    ),
-}
-
-# From visual inspection of the z-vz grid plots!
-elem_names = {
-    "apogee-rgb-loalpha": [
-        "FE_H",
-        "AL_FE",
-        "C_FE",
-        "MG_FE",
-        "MN_FE",
-        "NI_FE",
-        "N_FE",
-        "O_FE",
-        "P_FE",
-        "SI_FE",
-    ],
-    "apogee-ms-loalpha": [
-        "FE_H",
-        "AL_FE",
-        "C_FE",
-        "MG_FE",
-        "MN_FE",
-        "NI_FE",
-        "N_FE",
-        "O_FE",
-        "P_FE",
-        "SI_FE",
-        "TI_FE",
-    ],
-    "galah-rgb-loalpha": [
-        "FE_H",
-        "AL_FE",
-        "BA_FE",
-        "CA_FE",
-        "CO_FE",
-        "CU_FE",
-        "MG_FE",
-        "MN_FE",
-        "NA_FE",
-        "O_FE",
-        "SC_FE",
-        "Y_FE",
-        "ZN_FE",
-    ],
-    "galah-ms-loalpha": [
-        "FE_H",
-        "AL_FE",
-        "CA_FE",
-        "K_FE",
-        "MG_FE",
-        "MN_FE",
-        "NA_FE",
-        "SC_FE",
-        "TI_FE",
-        "Y_FE",
-    ],
-}
-elem_names["apogee-rgb-hialpha"] = elem_names["apogee-rgb-loalpha"]
-elem_names["apogee-rc-loalpha"] = elem_names["apogee-rgb-loalpha"]
-
-for name in datasets:
-    for path in [plot_path, cache_path]:
-        this_path = path / name
-        this_path.mkdir(exist_ok=True)

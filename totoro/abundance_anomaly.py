@@ -63,6 +63,12 @@ class AbundanceAnomalyMaschine:
         # Actions without units:
         X = self.actions.value
 
+        assert len(elem) == X.shape[0]
+        if not np.all(np.isfinite(elem)):
+            raise ValueError(
+                "You passed in NaN or Inf values in element abundance array!"
+            )
+
         if "action_neighbors_idx" not in self._cache:
             # Construct the tree for all actions to find neighbors
             tree = cKDTree(X)
