@@ -91,9 +91,10 @@ class AbundanceAnomalyMaschine:
         w = np.sum(x ** 2, axis=1)[:, None] - x * np.sum(x, axis=1)[:, None]
         # TODO: this line might be wrong!! Weighting by inverse-variance as well to
         # account for the element abundance uncertainties
-        w = w * 1 / elem_err[:, None] ** 2
+        # w = w * 1 / elem_err[:, None] ** 2
         means = np.sum(y * w, axis=1) / np.sum(w, axis=1)
-        mean_vars = 1 / np.sum(1 / elem_err ** 2)
+        # mean_vars = 1 / np.sum(1 / elem_err ** 2)
+        mean_vars = 0.0
 
         d_elem = np.asarray(elem - means)
         d_elem_errs = np.sqrt(np.asarray(elem_err ** 2 + mean_vars))

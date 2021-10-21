@@ -83,12 +83,14 @@ class ClassicalOrbitalTorusImaging(BaseOrbitalTorusImaging):
         )
         return galcen_frame
 
-    def compute_actions_angles(self, pot_pars, galcen_frame):
-        pot = self.potential_func(**pot_pars)
+    def compute_actions_angles(self, pot, galcen_frame):
         galcen = self.skycoord.transform_to(galcen_frame)
 
         w = gd.PhaseSpacePosition(galcen.data)
         w = gd.Orbit(w.pos, w.vel)
+
+        if (w.energy(pot) > 0).any():
+            return None, None
 
         aaf = get_agama_aaf(pot, w)
 
@@ -96,13 +98,18 @@ class ClassicalOrbitalTorusImaging(BaseOrbitalTorusImaging):
 
     def get_coeffs(self, pars):
         pot_pars = {k: pars[k] for k in self._pot_par_names}
+        pot = self.potential_func(**pot_pars)
+
         galcen_pars = {
             k: pars[k] * uu
             for k, uu in zip(self._galcen_par_names, self._galcen_par_units)
         }
 
         galcen_frame = self.get_galcen_frame(**galcen_pars)
-        actions, angles = self.compute_actions_angles(pot_pars, galcen_frame)
+        actions, angles = self.compute_actions_angles(pot, galcen_frame)
+
+        if actions is None:
+            return None, None
 
         maschine = AbundanceAnomalyMaschine(actions)
 
@@ -116,6 +123,8 @@ class ClassicalOrbitalTorusImaging(BaseOrbitalTorusImaging):
     def __call__(self, p):
         pars = self.unpack_pars(p)
         coeff, _ = self.get_coeffs(pars)
+        if coeff is None:
+            return np.inf
 
         val = coeff[1] ** 2 + coeff[2] ** 2 + coeff[3] ** 2
         return val
