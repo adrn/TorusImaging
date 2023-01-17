@@ -10,7 +10,6 @@ from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
 from jax_cosmo.scipy.interpolate import InterpolatedUnivariateSpline
 
-from empaf.config import usys
 from empaf.jax_helpers import simpson
 
 __all__ = ["VerticalOrbitModel"]
@@ -81,9 +80,9 @@ class VerticalOrbitModel:
         import numpy as np
 
         if hasattr(z, "unit"):
-            z = z.decompose(usys).value
+            z = z.decompose(self.unit_sys).value
         if hasattr(vz, "unit"):
-            vz = vz.decompose(usys).value
+            vz = vz.decompose(self.unit_sys).value
 
         std_z = 1.5 * MAD(z, ignore_nan=True)
         std_vz = 1.5 * MAD(vz, ignore_nan=True)
