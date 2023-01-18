@@ -196,7 +196,7 @@ class VerticalOrbitModel:
         """
         self._validate_state()
         params = self.state.copy()
-        params["ln_Omega"] = jnp.log(self.pop("Omega"))
+        params["ln_Omega"] = jnp.log(self.state.pop("Omega"))
         return params
 
     @partial(jax.jit, static_argnames=["self"])
