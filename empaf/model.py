@@ -123,6 +123,28 @@ class VerticalOrbitModel:
 
         return model
 
+    def get_data_im(self, z, vz, bins):
+        """
+        Convert the raw data (stellar positions and velocities z, vz) into a binned 2D
+        histogram / image of number counts.
+
+        Parameters
+        ----------
+        z : quantity-like
+        vz : quantity-like
+        bins : dict
+        """
+        data_H, xe, ye = jnp.histogram2d(
+            vz.decompose(self.unit_sys).value,
+            z.decompose(self.unit_sys).value,
+            bins=(bins["vz"], bins["z"]),
+        )
+        xc = 0.5 * (xe[:-1] + xe[1:])
+        yc = 0.5 * (ye[:-1] + ye[1:])
+        xc, yc = jnp.meshgrid(xc, yc)
+
+        return {"z": jnp.array(yc), "vz": jnp.array(xc), "H": jnp.array(data_H.T)}
+
     def _validate_state(self, names=None):
         if self.state is None or not hasattr(self.state, "keys"):
             raise RuntimeError(
