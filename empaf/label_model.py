@@ -1,11 +1,13 @@
 from functools import partial
-from astropy.stats import median_absolute_deviation as MAD
-from gala.units import UnitSystem, galactic
+
 import jax
 import jax.numpy as jnp
-from jax_cosmo.scipy.interpolate import InterpolatedUnivariateSpline
 import numpy as np
+from astropy.stats import median_absolute_deviation as MAD
+from gala.units import UnitSystem, galactic
+from jax_cosmo.scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.stats import binned_statistic_2d
+
 from .model import VerticalOrbitModel
 
 __all__ = ["VerticalOrbitModel"]
@@ -54,7 +56,7 @@ class VerticalLabelModel(VerticalOrbitModel):
             z.decompose(self.unit_sys).value,
             label,
             bins=(bins["vz"], bins["z"]),
-            statistic=lambda x: 1.5 * MAD(x) / np.sqrt(len(x))
+            statistic=lambda x: 1.5 * MAD(x) / np.sqrt(len(x)),
         )
 
         return {
