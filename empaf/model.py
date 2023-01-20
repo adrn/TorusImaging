@@ -16,7 +16,7 @@ __all__ = ["VerticalOrbitModel"]
 
 
 class VerticalOrbitModel:
-    _state_names = ["Omega", "e_vals", "ln_dens_vals", "z0", "vz0"]
+    _state_names = ["nu", "e_vals", "ln_dens_vals", "z0", "vz0"]
 
     def __init__(self, dens_knots, e_knots, unit_sys=galactic):
         r"""
@@ -48,6 +48,8 @@ class VerticalOrbitModel:
         """
         self.dens_knots = jnp.array(dens_knots)
         self.e_knots = {int(k): jnp.array(knots) for k, knots in e_knots.items()}
+
+        # TODO: validate that [0]th knot is 0.
 
         for m, knots in self.e_knots.items():
             if len(knots) != 2:
@@ -86,13 +88,11 @@ class VerticalOrbitModel:
 
         std_z = 1.5 * MAD(z, ignore_nan=True)
         std_vz = 1.5 * MAD(vz, ignore_nan=True)
-        Omega = std_vz / std_z
+        nu = std_vz / std_z
 
         model = self.copy()
 
-        model.set_state(
-            {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "Omega": Omega}
-        )
+        model.set_state({"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "nu": nu})
         rzp, _ = model.z_vz_to_rz_theta_prime_arr(z, vz)
 
         max_rz = np.nanpercentile(rzp, 99.5)
@@ -111,12 +111,12 @@ class VerticalOrbitModel:
 
         # TODO: is there a better way to estimate these?
         e_vals = {}
-        e_vals[2] = jnp.array([0.0, 0.1])
-        e_vals[4] = jnp.array([0.0, -0.05])
+        e_vals[2] = jnp.array([0.1])
+        e_vals[4] = jnp.array([-0.05])
         for m in self.e_knots.keys():
             if m in e_vals:
                 continue
-            e_vals[m] = jnp.zeros(2)
+            e_vals[m] = jnp.zeros(1)
         model.set_state({"e_vals": e_vals})
 
         model._validate_state()
@@ -185,8 +185,8 @@ class VerticalOrbitModel:
             self.state = {}
 
         for k in params:
-            if k == "ln_Omega":
-                self.state.setdefault("Omega", jnp.exp(params["ln_Omega"]))
+            if k == "ln_nu":
+                self.state.setdefault("nu", jnp.exp(params["ln_nu"]))
             else:
                 self.state.setdefault(k, params[k])
 
@@ -196,7 +196,7 @@ class VerticalOrbitModel:
         """
         self._validate_state()
         params = self.state.copy()
-        params["ln_Omega"] = jnp.log(params.pop("Omega"))
+        params["ln_nu"] = jnp.log(params.pop("nu"))
         return params
 
     @partial(jax.jit, static_argnames=["self"])
@@ -209,7 +209,9 @@ class VerticalOrbitModel:
 
         es = {}
         for k, vals in e_vals.items():
-            es[k] = InterpolatedUnivariateSpline(self.e_knots[k], vals, k=1)(rz_prime)
+            es[k] = InterpolatedUnivariateSpline(
+                self.e_knots[k], jnp.concatenate((jnp.array([0.0]), vals)), k=1
+            )(rz_prime)
         return es
 
     @partial(jax.jit, static_argnames=["self"])
@@ -217,10 +219,10 @@ class VerticalOrbitModel:
         r"""
         Compute :math:`r_z'` (``rz_prime``) and :math:`\theta_z'` (``theta_prime``)
         """
-        self._validate_state(["z0", "vz0", "Omega"])
+        self._validate_state(["z0", "vz0", "nu"])
 
-        x = (vz - self.state["vz0"]) / jnp.sqrt(self.state["Omega"])
-        y = (z - self.state["z0"]) * jnp.sqrt(self.state["Omega"])
+        x = (vz - self.state["vz0"]) / jnp.sqrt(self.state["nu"])
+        y = (z - self.state["z0"]) * jnp.sqrt(self.state["nu"])
 
         rz_prime = jnp.sqrt(x**2 + y**2)
         th_prime = jnp.arctan2(y, x)
@@ -254,29 +256,23 @@ class VerticalOrbitModel:
         thp = theta_prime
 
         # convert e_vals and e_knots to slope and intercept
-        e_as = {
-            k: (e_vals[k][1] - e_vals[k][0]) / (self.e_knots[k][1] - self.e_knots[k][0])
-            for k in e_vals
-        }
-        e_bs = {k: -e_as[k] * self.e_knots[k][0] + e_vals[k][0] for k in e_vals}
-
-        terms1 = jnp.sum(jnp.array([e_bs[k] * jnp.cos(k * thp) for k in e_bs]), axis=0)
-        terms2 = jnp.sum(jnp.array([e_as[k] * jnp.cos(k * thp) for k in e_bs]), axis=0)
-        return (2 * rz) / (1 + terms1 + jnp.sqrt((1 + terms1) ** 2 + 4 * rz * terms2))
+        e_as = {k: e_vals[k][0] / self.e_knots[k][1] for k in e_vals}
+        terms2 = jnp.sum(jnp.array([e_as[k] * jnp.cos(k * thp) for k in e_as]), axis=0)
+        return (2 * rz) / (1 + jnp.sqrt(1 + 4 * rz * terms2))
 
     @partial(jax.jit, static_argnames=["self"])
     def get_z(self, rz, theta_prime):
         self._validate_state()
-        Omega = self.state["Omega"]
+        nu = self.state["nu"]
         rzp = self.get_rz_prime(rz, theta_prime)
-        return rzp * jnp.sin(theta_prime) / jnp.sqrt(Omega)
+        return rzp * jnp.sin(theta_prime) / jnp.sqrt(nu)
 
     @partial(jax.jit, static_argnames=["self"])
     def get_vz(self, rz, theta_prime):
         self._validate_state()
-        Omega = self.state["Omega"]
+        nu = self.state["nu"]
         rzp = self.get_rz_prime(rz, theta_prime)
-        return rzp * jnp.cos(theta_prime) * jnp.sqrt(Omega)
+        return rzp * jnp.cos(theta_prime) * jnp.sqrt(nu)
 
     @partial(jax.jit, static_argnames=["self", "N_grid"])
     def get_Tz_Jz_thetaz(self, z, vz, N_grid):

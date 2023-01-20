@@ -16,7 +16,7 @@ __all__ = ["VerticalOrbitModel"]
 
 
 class VerticalLabelModel(VerticalOrbitModel):
-    _state_names = ["Omega", "e_vals", "label_vals", "z0", "vz0"]
+    _state_names = ["nu", "e_vals", "label_vals", "z0", "vz0"]
 
     def __init__(self, label_knots, e_knots, unit_sys=galactic):
         self.label_knots = jnp.array(label_knots)
@@ -50,11 +50,11 @@ class VerticalLabelModel(VerticalOrbitModel):
         # First, estimate nu0 with some crazy bullshit:
         med_stat = np.nanpercentile(label_stat, 75)
         annulus_idx = np.abs(label_stat.ravel() - med_stat) < 0.02 * med_stat
-        Omega = np.nanpercentile(
-            np.abs(vz.ravel()[annulus_idx]), 95
-        ) / np.nanpercentile(np.abs(z.ravel()[annulus_idx]), 95)
+        nu = np.nanpercentile(np.abs(z.ravel()[annulus_idx]), 25) / np.nanpercentile(
+            np.abs(vz.ravel()[annulus_idx]), 25
+        )
 
-        model.set_state({"z0": 0.0, "vz0": 0.0, "Omega": Omega})
+        model.set_state({"z0": 0.0, "vz0": 0.0, "nu": nu})
         rzp, _ = model.z_vz_to_rz_theta_prime_arr(z, vz)
 
         # Now estimate the label function spline values, again, with some craycray:
@@ -74,7 +74,7 @@ class VerticalLabelModel(VerticalOrbitModel):
         # Lastly, set all e vals to 0
         e_vals = {}
         for m in self.e_knots.keys():
-            e_vals[m] = jnp.zeros(2)
+            e_vals[m] = jnp.zeros(1)
         model.set_state({"e_vals": e_vals})
 
         model._validate_state()

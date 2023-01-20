@@ -91,11 +91,21 @@ def plot_data_models_label_residual(
 
     # Initial model:
     model0_H = model0.label(z=data_H["z"], vz=data_H["vz"])
-    cs = axes[1].pcolormesh(data_H["vz"], data_H["z"], model0_H, **vlim)
+    cs = axes[1].pcolormesh(
+        data_H["vz"],
+        data_H["z"],
+        model0_H * np.isfinite(data_H["label_stat"]).astype(float),
+        **vlim,
+    )
 
     # Fitted model:
     model_H = model.label(z=data_H["z"], vz=data_H["vz"])
-    cs = axes[2].pcolormesh(data_H["vz"], data_H["z"], model_H, **vlim)
+    cs = axes[2].pcolormesh(
+        data_H["vz"],
+        data_H["z"],
+        model_H * np.isfinite(data_H["label_stat"]).astype(float),
+        **vlim,
+    )
     fig.colorbar(cs, ax=axes[:3], aspect=40)
 
     # Residual:
