@@ -489,18 +489,16 @@ class LabelOrbitModel(OrbitModelBase):
         import numpy as np
         import scipy.interpolate as sci
 
-        if hasattr(z, "unit"):
-            z = z.decompose(self.unit_sys).value
-        if hasattr(vz, "unit"):
-            vz = vz.decompose(self.unit_sys).value
+        z = z.decompose(self.unit_sys).value
+        vz = vz.decompose(self.unit_sys).value
 
         model = self.copy()
 
         # First, estimate nu0 with some crazy bullshit:
-        med_stat = np.nanpercentile(label_stat, 75)
+        med_stat = np.nanpercentile(label_stat, 15)
         annulus_idx = np.abs(label_stat.ravel() - med_stat) < 0.02 * med_stat
-        nu = np.nanpercentile(np.abs(z.ravel()[annulus_idx]), 25) / np.nanpercentile(
-            np.abs(vz.ravel()[annulus_idx]), 25
+        nu = np.nanpercentile(np.abs(vz.ravel()[annulus_idx]), 25) / np.nanpercentile(
+            np.abs(z.ravel()[annulus_idx]), 25
         )
 
         model.set_state({"z0": 0.0, "vz0": 0.0, "nu": nu})
@@ -522,8 +520,12 @@ class LabelOrbitModel(OrbitModelBase):
 
         # Lastly, set all e vals to 0
         e_vals = {}
+        e_vals[2] = jnp.full(len(self.e_knots[2]) - 1, 0.1 / len(self.e_knots[2]))
+        e_vals[4] = jnp.full(len(self.e_knots[4]) - 1, 0.05 / len(self.e_knots[4]))
         for m in self.e_knots.keys():
-            e_vals[m] = jnp.zeros(1)
+            if m in e_vals:
+                continue
+            e_vals[m] = jnp.zeros(len(self.e_knots[m]) - 1)
         model.set_state({"e_vals": e_vals})
 
         model._validate_state()
