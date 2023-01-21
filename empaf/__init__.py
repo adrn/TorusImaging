@@ -3,4 +3,4 @@ try:
 except ImportError:
     __version__ = ""
 
-from empaf.model import VerticalOrbitModel  # noqa
+from empaf.model import *  # noqa
