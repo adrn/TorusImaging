@@ -30,7 +30,7 @@ def plot_data_models_residual(
     if usys is None:
         usys = model.unit_sys
 
-    vlim = dict(norm=mpl.colors.LogNorm(vmax=3e4), shading="auto")
+    vlim = dict(norm=mpl.colors.LogNorm(vmin=1e-1, vmax=3e4), shading="auto")
 
     fig, axes = plt.subplots(
         1, 4, figsize=(22, 5.4), sharex=True, sharey=True, constrained_layout=True
@@ -76,35 +76,50 @@ def plot_data_models_residual(
 
 
 def plot_data_models_label_residual(
-    data_H, model0, model, smooth_residual=None, vlim_residual=0.02, usys=None
+    data_H,
+    model0,
+    model,
+    smooth_residual=None,
+    vlim=None,
+    vlim_residual=0.02,
+    usys=None,
+    mask_no_data=True,
 ):
     if usys is None:
         usys = model.unit_sys
 
-    vlim = dict(shading="auto")
+    if vlim is None:
+        vlim = np.nanpercentile(data_H["label_stat"], [1, 99])
+    pcolor_kw = dict(shading="auto", vmin=vlim[0], vmax=vlim[1])
 
     fig, axes = plt.subplots(
         1, 4, figsize=(22, 5.4), sharex=True, sharey=True, constrained_layout=True
     )
 
-    cs = axes[0].pcolormesh(data_H["vz"], data_H["z"], data_H["label_stat"], **vlim)
+    cs = axes[0].pcolormesh(
+        data_H["vz"], data_H["z"], data_H["label_stat"], **pcolor_kw
+    )
 
     # Initial model:
-    model0_H = model0.label(z=data_H["z"], vz=data_H["vz"])
+    model0_H = np.array(model0.label(z=data_H["z"], vz=data_H["vz"]))
+    if mask_no_data:
+        model0_H[~np.isfinite(data_H["label_stat"])] = np.nan
     cs = axes[1].pcolormesh(
         data_H["vz"],
         data_H["z"],
-        model0_H * np.isfinite(data_H["label_stat"]).astype(float),
-        **vlim,
+        model0_H,
+        **pcolor_kw,
     )
 
     # Fitted model:
-    model_H = model.label(z=data_H["z"], vz=data_H["vz"])
+    model_H = np.array(model.label(z=data_H["z"], vz=data_H["vz"]))
+    if mask_no_data:
+        model_H[~np.isfinite(data_H["label_stat"])] = np.nan
     cs = axes[2].pcolormesh(
         data_H["vz"],
         data_H["z"],
-        model_H * np.isfinite(data_H["label_stat"]).astype(float),
-        **vlim,
+        model_H,
+        **pcolor_kw,
     )
     fig.colorbar(cs, ax=axes[:3], aspect=40)
 
