@@ -412,7 +412,11 @@ class DensityOrbitModel(OrbitModelBase):
         spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=self.dens_k)
         ln_dens_vals = spl(model.ln_dens_knots)
 
-        model.set_state({"ln_dens_vals": ln_dens_vals})
+        # Transform to parameters:
+        ln_dens_pars = np.concatenate(
+            (ln_dens_vals[0:1], np.clip(-np.diff(ln_dens_vals), 0.0, None))
+        )
+        model.set_state({"ln_dens_vals": ln_dens_pars})
 
         # TODO: is there a better way to estimate these?
         e_vals = {}
@@ -455,9 +459,10 @@ class DensityOrbitModel(OrbitModelBase):
     def get_ln_dens(self, rz):
         self._validate_state()
         ln_dens_vals = self.state["ln_dens_vals"]
-        spl = InterpolatedUnivariateSpline(
-            self.ln_dens_knots, ln_dens_vals, k=self.dens_k
-        )
+
+        # Enforce that density goes down:
+        vals = jnp.cumsum(jnp.concatenate((ln_dens_vals[0:1], -ln_dens_vals[1:])))
+        spl = InterpolatedUnivariateSpline(self.ln_dens_knots, vals, k=self.dens_k)
         return spl(rz)
 
     @partial(jax.jit, static_argnames=["self"])
