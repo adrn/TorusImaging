@@ -29,8 +29,12 @@ class OrbitModelBase:
             raise ValueError("TODO")
         cls._state_names = cls._state_names + [f"{cls._spl_name}_vals"]  # make a copy
 
-    def __init__(self, e_knots, e_signs, unit_sys=galactic):
+    def __init__(self, e_knots, e_signs, e_k=1, dens_k=1, unit_sys=galactic):
         r"""
+        TODO:
+        - nu below should actually be Omega
+        -
+
         Notation:
         - :math:`\nu_0` or ``nu_0``: A scale frequency used to compute the elliptical
           radius ``rz_prime``.
@@ -56,6 +60,12 @@ class OrbitModelBase:
             The overall sign of the :math:`e_m(r_z')` functions. Keys should be the
             (integer) "m" order of the distortion term (for the distortion function),
             and values should be 1 or -1.
+        e_k : int (optional)
+            The order of the spline used for the :math:`e_m` coefficients. Default: 1,
+            linear. Only k=2 (quadratic) or k=3 (cubic) are supported.
+        dens_k : int (optional)
+            The order of the spline used for the density function. Default: 1, linear.
+            Only k=2 (quadratic) or k=3 (cubic) are supported.
         unit_sys : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
             from Gala: (kpc, Myr, Msun).
@@ -63,6 +73,8 @@ class OrbitModelBase:
         """
         self.e_knots = {int(m): jnp.array(knots) for m, knots in e_knots.items()}
         self.e_signs = {int(m): float(e_signs.get(m, 1.0)) for m in e_knots.keys()}
+        self.e_k = int(e_k)
+        self.dens_k = int(dens_k)
 
         for m, knots in self.e_knots.items():
             if knots[0] != 0.0:
@@ -157,7 +169,9 @@ class OrbitModelBase:
             tmp_e = self.e_signs[m] * jnp.cumsum(
                 jnp.concatenate((jnp.array([0.0]), jnp.array(vals)))
             )
-            es[m] = InterpolatedUnivariateSpline(self.e_knots[m], tmp_e, k=1)(rz_prime)
+            es[m] = InterpolatedUnivariateSpline(self.e_knots[m], tmp_e, k=self.e_k)(
+                rz_prime
+            )
         return es
 
     @partial(jax.jit, static_argnames=["self"])
@@ -207,8 +221,8 @@ class OrbitModelBase:
         )
         return bisec.run(rz, rrz=rz, tt_prime=theta_prime).params
 
-        # This only works for purely linear functions in e2, e4, etc., and only when
-        # they are fixed to be zero at rz=0
+        # The below only works for purely linear functions in e2, e4, etc., and only
+        # when they are fixed to be zero at rz=0
         # self._validate_state()
         # e_vals = self.state["e_vals"]
 
@@ -395,7 +409,7 @@ class DensityOrbitModel(OrbitModelBase):
         # TODO: WTF - this is a total hack -- why is this needed???
         ln_dens = ln_dens - 8.6
 
-        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=1)
+        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=self.dens_k)
         ln_dens_vals = spl(model.ln_dens_knots)
 
         model.set_state({"ln_dens_vals": ln_dens_vals})
@@ -441,7 +455,9 @@ class DensityOrbitModel(OrbitModelBase):
     def get_ln_dens(self, rz):
         self._validate_state()
         ln_dens_vals = self.state["ln_dens_vals"]
-        spl = InterpolatedUnivariateSpline(self.ln_dens_knots, ln_dens_vals, k=1)
+        spl = InterpolatedUnivariateSpline(
+            self.ln_dens_knots, ln_dens_vals, k=self.dens_k
+        )
         return spl(rz)
 
     @partial(jax.jit, static_argnames=["self"])
@@ -469,7 +485,9 @@ class DensityOrbitModel(OrbitModelBase):
 class LabelOrbitModel(OrbitModelBase):
     _spl_name = "label"
 
-    def __init__(self, label_knots, e_knots, e_signs, unit_sys=galactic):
+    def __init__(
+        self, label_knots, e_knots, e_signs, e_k=1, label_k=3, unit_sys=galactic
+    ):
         f"""
         {OrbitModelBase.__init__.__doc__.split('Parameters')[0]}
 
@@ -482,7 +500,8 @@ class LabelOrbitModel(OrbitModelBase):
 
         """
         self.label_knots = jnp.array(label_knots)
-        super().__init__(e_knots=e_knots, e_signs=e_signs, unit_sys=unit_sys)
+        self.label_k = int(label_k)
+        super().__init__(e_knots=e_knots, e_signs=e_signs, e_k=e_k, unit_sys=unit_sys)
 
     @u.quantity_input
     def get_params_init(self, z: u.kpc, vz: u.km / u.s, label_stat):
@@ -571,7 +590,7 @@ class LabelOrbitModel(OrbitModelBase):
     def get_label(self, rz):
         self._validate_state()
         label_vals = self.state["label_vals"]
-        spl = InterpolatedUnivariateSpline(self.label_knots, label_vals, k=3)
+        spl = InterpolatedUnivariateSpline(self.label_knots, label_vals, k=self.label_k)
         return spl(rz)
 
     @partial(jax.jit, static_argnames=["self"])
