@@ -29,7 +29,7 @@ class OrbitModelBase:
             raise ValueError("TODO")
         cls._state_names = cls._state_names + [f"{cls._spl_name}_vals"]  # make a copy
 
-    def __init__(self, e_knots, e_signs, e_k=1, dens_k=1, unit_sys=galactic):
+    def __init__(self, e_knots, e_signs, e_k=1, unit_sys=galactic):
         r"""
         TODO:
         - nu below should actually be Omega
@@ -63,9 +63,6 @@ class OrbitModelBase:
         e_k : int (optional)
             The order of the spline used for the :math:`e_m` coefficients. Default: 1,
             linear. Only k=2 (quadratic) or k=3 (cubic) are supported.
-        dens_k : int (optional)
-            The order of the spline used for the density function. Default: 1, linear.
-            Only k=2 (quadratic) or k=3 (cubic) are supported.
         unit_sys : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
             from Gala: (kpc, Myr, Msun).
@@ -74,7 +71,6 @@ class OrbitModelBase:
         self.e_knots = {int(m): jnp.array(knots) for m, knots in e_knots.items()}
         self.e_signs = {int(m): float(e_signs.get(m, 1.0)) for m in e_knots.keys()}
         self.e_k = int(e_k)
-        self.dens_k = int(dens_k)
 
         for m, knots in self.e_knots.items():
             if knots[0] != 0.0:
@@ -356,7 +352,9 @@ class OrbitModelBase:
 class DensityOrbitModel(OrbitModelBase):
     _spl_name = "ln_dens"
 
-    def __init__(self, ln_dens_knots, e_knots, e_signs, unit_sys=galactic):
+    def __init__(
+        self, ln_dens_knots, e_knots, e_signs, e_k=1, dens_k=1, unit_sys=galactic
+    ):
         f"""
         {OrbitModelBase.__init__.__doc__.split('Parameters')[0]}
 
@@ -366,10 +364,14 @@ class DensityOrbitModel(OrbitModelBase):
             The knot locations for the spline that controls the density function. These
             are locations in :math:`r_z`.
         {OrbitModelBase.__init__.__doc__.split('----------')[1]}
+        dens_k : int (optional)
+            The order of the spline used for the density function. Default: 1, linear.
+            Only k=2 (quadratic) or k=3 (cubic) are supported.
 
         """
         self.ln_dens_knots = jnp.array(ln_dens_knots)
-        super().__init__(e_knots=e_knots, e_signs=e_signs, unit_sys=unit_sys)
+        self.dens_k = int(dens_k)
+        super().__init__(e_knots=e_knots, e_signs=e_signs, e_k=e_k, unit_sys=unit_sys)
 
     @u.quantity_input
     def get_params_init(self, z: u.kpc, vz: u.km / u.s):
@@ -520,7 +522,18 @@ class LabelOrbitModel(OrbitModelBase):
 
         # First, estimate nu0 with some crazy bullshit:
         med_stat = np.nanpercentile(label_stat, 15)
-        annulus_idx = np.abs(label_stat.ravel() - med_stat) < 0.02 * med_stat
+
+        fac = 0.02  # MAGIC NUMBER
+        for _ in range(16):  # max number of iterations
+            annulus_idx = np.abs(label_stat.ravel() - med_stat) < fac * np.abs(med_stat)
+            if annulus_idx.sum() < 0.05 * len(annulus_idx):  # MAGIC NUMBER
+                fac *= 2
+            else:
+                break
+
+        else:
+            raise ValueError("Shit!")
+
         nu = np.nanpercentile(np.abs(vz.ravel()[annulus_idx]), 25) / np.nanpercentile(
             np.abs(z.ravel()[annulus_idx]), 25
         )
