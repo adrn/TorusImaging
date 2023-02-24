@@ -342,8 +342,14 @@ class OrbitModelBase:
     def copy(self):
         knot_name = f"{self._spl_name}_knots"
         kw = {knot_name: getattr(self, knot_name)}
+        k_name = f"{self._spl_name}_k"
+        kw[k_name] = getattr(self, k_name)
         obj = self.__class__(
-            e_knots=self.e_knots, e_signs=self.e_signs, unit_sys=self.unit_sys, **kw
+            e_knots=self.e_knots,
+            e_signs=self.e_signs,
+            e_k=self.e_k,
+            unit_sys=self.unit_sys,
+            **kw,
         )
         obj.set_state(self.state, overwrite=True)
         return obj
@@ -353,7 +359,7 @@ class DensityOrbitModel(OrbitModelBase):
     _spl_name = "ln_dens"
 
     def __init__(
-        self, ln_dens_knots, e_knots, e_signs, e_k=1, dens_k=1, unit_sys=galactic
+        self, ln_dens_knots, e_knots, e_signs, e_k=1, ln_dens_k=1, unit_sys=galactic
     ):
         f"""
         {OrbitModelBase.__init__.__doc__.split('Parameters')[0]}
@@ -370,7 +376,7 @@ class DensityOrbitModel(OrbitModelBase):
 
         """
         self.ln_dens_knots = jnp.array(ln_dens_knots)
-        self.dens_k = int(dens_k)
+        self.ln_dens_k = int(ln_dens_k)
         super().__init__(e_knots=e_knots, e_signs=e_signs, e_k=e_k, unit_sys=unit_sys)
 
     @u.quantity_input
@@ -411,7 +417,7 @@ class DensityOrbitModel(OrbitModelBase):
         # TODO: WTF - this is a total hack -- why is this needed???
         ln_dens = ln_dens - 8.6
 
-        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=self.dens_k)
+        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=self.ln_dens_k)
         ln_dens_vals = spl(model.ln_dens_knots)
 
         # Transform to parameters:
@@ -464,7 +470,7 @@ class DensityOrbitModel(OrbitModelBase):
 
         # Enforce that density goes down:
         vals = jnp.cumsum(jnp.concatenate((ln_dens_vals[0:1], -ln_dens_vals[1:])))
-        spl = InterpolatedUnivariateSpline(self.ln_dens_knots, vals, k=self.dens_k)
+        spl = InterpolatedUnivariateSpline(self.ln_dens_knots, vals, k=self.ln_dens_k)
         return spl(rz)
 
     @partial(jax.jit, static_argnames=["self"])
