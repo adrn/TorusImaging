@@ -87,8 +87,9 @@ def plot_data_models_residual(
 
 def plot_data_models_label_residual(
     data_H,
-    model0,
     model,
+    params_init,
+    params_fit,
     smooth_residual=None,
     vlim=None,
     vlim_residual=0.02,
@@ -99,21 +100,19 @@ def plot_data_models_label_residual(
         usys = model.unit_sys
 
     if vlim is None:
-        vlim = np.nanpercentile(data_H["label_stat"], [1, 99])
+        vlim = np.nanpercentile(data_H["label"], [1, 99])
     pcolor_kw = dict(shading="auto", vmin=vlim[0], vmax=vlim[1])
 
     fig, axes = plt.subplots(
         1, 4, figsize=(22, 5.4), sharex=True, sharey=True, constrained_layout=True
     )
 
-    cs = axes[0].pcolormesh(
-        data_H["vz"], data_H["z"], data_H["label_stat"], **pcolor_kw
-    )
+    cs = axes[0].pcolormesh(data_H["vz"], data_H["z"], data_H["label"], **pcolor_kw)
 
     # Initial model:
-    model0_H = np.array(model0.label(z=data_H["z"], vz=data_H["vz"]))
+    model0_H = np.array(model.label(z=data_H["z"], vz=data_H["vz"], params=params_init))
     if mask_no_data:
-        model0_H[~np.isfinite(data_H["label_stat"])] = np.nan
+        model0_H[~np.isfinite(data_H["label"])] = np.nan
     cs = axes[1].pcolormesh(
         data_H["vz"],
         data_H["z"],
@@ -122,9 +121,9 @@ def plot_data_models_label_residual(
     )
 
     # Fitted model:
-    model_H = np.array(model.label(z=data_H["z"], vz=data_H["vz"]))
+    model_H = np.array(model.label(z=data_H["z"], vz=data_H["vz"], params=params_fit))
     if mask_no_data:
-        model_H[~np.isfinite(data_H["label_stat"])] = np.nan
+        model_H[~np.isfinite(data_H["label"])] = np.nan
     cs = axes[2].pcolormesh(
         data_H["vz"],
         data_H["z"],
@@ -135,7 +134,7 @@ def plot_data_models_label_residual(
 
     # Residual:
     #     resid = np.array((data_H['label_stat'] - model_H) / model_H)
-    resid = np.array(data_H["label_stat"] - model_H)
+    resid = np.array(data_H["label"] - model_H)
     # resid[data_H['H'] < 5] = np.nan
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
