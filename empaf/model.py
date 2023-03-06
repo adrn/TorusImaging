@@ -543,7 +543,7 @@ class LabelOrbitModel(OrbitModelBase):
         vz = vz.decompose(self.unit_sys).value
 
         # First, estimate nu0 with some crazy bullshit:
-        med_stat = np.nanpercentile(label, 25)
+        med_stat = np.nanpercentile(label, 15)
 
         fac = 0.02  # MAGIC NUMBER
         for _ in range(16):  # max number of iterations
@@ -556,9 +556,11 @@ class LabelOrbitModel(OrbitModelBase):
         else:
             raise ValueError("Shit!")
 
-        nu = np.nanpercentile(np.abs(vz.ravel()[annulus_idx]), 25) / np.nanpercentile(
-            np.abs(z.ravel()[annulus_idx]), 25
-        )
+        vvv = np.abs(vz.ravel()[annulus_idx])
+        zzz = np.abs(z.ravel()[annulus_idx])
+        v_z0 = np.median(vvv[zzz < 0.2 * np.median(zzz)])  # MAGIC NUMBER 0.2
+        z_v0 = np.median(zzz[vvv < 0.2 * np.median(vvv)])  # MAGIC NUMBER 0.2
+        nu = v_z0 / z_v0
 
         pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
         rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
