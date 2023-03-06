@@ -11,202 +11,183 @@ import scipy.interpolate as sci
 from astropy.stats import median_absolute_deviation as MAD
 from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
-from jax_cosmo.scipy.interpolate import InterpolatedUnivariateSpline
 from jaxopt import Bisection
 from scipy.stats import binned_statistic, binned_statistic_2d
 
 from empaf.jax_helpers import simpson
+from empaf.model_helpers import custom_tanh_func_alt
 
 __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 
 
 class OrbitModelBase:
-    _state_names = ["nu", "e_vals", "z0", "vz0"]
-    _spl_name = ""
-
-    def __init_subclass__(cls):
-        if cls._spl_name == "":
-            raise ValueError("TODO")
-        cls._state_names = cls._state_names + [f"{cls._spl_name}_vals"]  # make a copy
-
-    def __init__(self, e_knots, e_signs, e_k=1, unit_sys=galactic):
+    def __init__(self, e_funcs=None, unit_sys=galactic):
         r"""
-        TODO:
-        - nu below should actually be Omega
-        -
-
         Notation:
-        - :math:`\nu_0` or ``nu_0``: A scale frequency used to compute the elliptical
-          radius ``rz_prime``.
+        - :math:`\Omega_0` or ``Omega_0``: A scale frequency used to compute the
+          elliptical radius ``rz_prime``. This can be interpreted as the asymptotic
+          orbital frequency at :math:`J_z=0`.
         - :math:`r_z'` or ``rz_prime``: The "raw" elliptical radius :math:`\sqrt{z^2\,
-          \nu_0 + v_z^2 \, \nu_0^{-1}}`.
+          \Omega_0 + v_z^2 \, \Omega_0^{-1}}`.
         - :math:`\theta'` or ``theta_prime``: The "raw" z angle defined as :math:`\tan
-          {\theta'} = \frac{z}{v_z}\,\nu_0`.
+          {\theta'} = \frac{z}{v_z}\,\Omega_0`.
         - :math:`r_z` or ``rz``: The distorted elliptical radius :math:`r_z = r_z' \,
-          f(r_z', \theta_z')` where :math:`f(\cdot)` is the distortion function.
-        - :math:`\theta` or ``theta``: The true vertical angle.
+          f(r_z', \theta_z')`, which is close to :math:`\sqrt{J_z}` and so we call it
+          the "proxy action" below. :math:`f(\cdot)` is the distortion function defined
+          next.
         - :math:`f(r_z', \theta_z')`: The distortion function is a Fourier expansion,
           defined as: :math:`f(r_z', \theta_z') = 1+\sum_m e_m(r_z')\,\cos(m\,\theta')`
+        - :math:`\theta_z` or ``theta_z``: The vertical angle.
 
         Parameters
         ----------
-        e_knots : dict
-            The locations of knots for the splines that control the variation of each
-            :math:`e_m(r_z')` function. Keys should be the (integer) "m" order of the
-            distortion term (for the distortion function), and values should be the knot
-            locations for interpolating the values of the distortion coefficients
-            :math:`e_m(r_z')`.
-        e_signs : dict
-            The overall sign of the :math:`e_m(r_z')` functions. Keys should be the
+        e_funcs : dict (optional)
+            A dictionary that provides functions that specify the dependence of the
+            Fourier distortion coefficients :math:`e_m(r_z')`. Keys should be the
             (integer) "m" order of the distortion term (for the distortion function),
-            and values should be 1 or -1.
-        e_k : int (optional)
-            The order of the spline used for the :math:`e_m` coefficients. Default: 1,
-            linear. Only k=2 (quadratic) or k=3 (cubic) are supported.
+            and values should be Python callable objects that can be passed to
+            `jax.jit()`. The first argument of each of these functions should be the raw
+            elliptical radius :math:`r_z'` or ``rz_prime``. If not specified, default
+            monotonic functions will be used:
+            `empaf.model_helpers.custom_tanh_func_alt()`.
         unit_sys : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
-            from Gala: (kpc, Myr, Msun).
+            from Gala: (kpc, Myr, Msun, radian).
 
         """
-        self.e_knots = {int(m): jnp.array(knots) for m, knots in e_knots.items()}
-        self.e_signs = {int(m): float(e_signs.get(m, 1.0)) for m in e_knots.keys()}
-        self.e_k = int(e_k)
-
-        for m, knots in self.e_knots.items():
-            if knots[0] != 0.0:
-                raise ValueError(
-                    f"The first knot must be at rz=0. Knots for m={m} start at "
-                    f"{knots[0]} instead"
-                )
-
-        self.state = None
+        if e_funcs is None:
+            # Default functions:
+            self.e_funcs = {
+                2: lambda *a, **k: custom_tanh_func_alt(*a, f0=0.0, **k),
+                4: lambda *a, **k: custom_tanh_func_alt(*a, f0=0.0, **k),
+            }
+            self._default_e_funcs = True
+        else:
+            self.e_funcs = {int(m): jax.jit(e_func) for m, e_func in e_funcs.items()}
+            self._default_e_funcs = False
 
         # Unit system:
         self.unit_sys = UnitSystem(unit_sys)
 
-    def _validate_state(self, names=None):
-        if self.state is None or not hasattr(self.state, "keys"):
-            raise RuntimeError(
-                "Model state is not set or is invalid. Maybe you didn't initialize "
-                "properly, or run .optimize() yet?"
+        # TODO: decide if we will keep parameter validation. For JIT/JAX maybe not?
+        # Fill a list of parameter names - used later to validate input `params`
+        # self._param_names = ["ln_Omega", "e_params", "z0", "vz0"]
+
+    def _get_default_e_params(self):
+        pars0 = {}
+
+        # If default e_funcs, we can specify some defaults:
+        if self._default_e_funcs:
+            pars0["e_params"] = {2: {}, 4: {}}
+            pars0["e_params"][2]["f1"] = 0.1
+            pars0["e_params"][2]["alpha"] = 0.33
+            pars0["e_params"][2]["x0"] = 3.0
+
+            pars0["e_params"][4]["f1"] = -0.02
+            pars0["e_params"][4]["alpha"] = 0.45
+            pars0["e_params"][4]["x0"] = 3.0
+        else:
+            warn(
+                "With custom e_funcs, you must set your own initial parameters. Use "
+                "the dictionary returned by this function and add initial guesses "
+                "for all parameters expected by the e_funcs.",
+                RuntimeWarning,
             )
 
-        else:
-            if names is None:
-                names = self._state_names
+        return pars0
 
-            for name in names:
-                assert name in self._state_names
-                if name not in self.state:
-                    raise RuntimeError(
-                        f"Parameter {name} is missing from the model state"
-                    )
-
-    def set_state(self, params, overwrite=False):
-        """
-        Set the model state parameters.
-
-        Default behavior is to not overwrite any existing state parameter values.
+    @partial(jax.jit, static_argnames=["self"])
+    def z_vz_to_rz_theta_prime(self, z, vz, params):
+        r"""
+        Compute the raw elliptical radius :math:`r_z'` (``rz_prime``) and the apparent
+        phase :math:`\theta_z'` (``theta_prime``)
 
         Parameters
         ----------
+        z : numeric, array-like
+        vz : numeric, array-like
         params : dict
-            Parameters used to set the model state parameters.
-        overwrite : bool (optional)
-            Overwrite any existing state parameter values.
         """
-        if params is None:
-            self.state = None
-            return
-
-        # TODO: could have a "copy" argument?
-        if self.state is None or overwrite:
-            self.state = {}
-
-        for k in params:
-            if k == "ln_nu":
-                self.state.setdefault("nu", jnp.exp(params["ln_nu"]))
-            elif k == "e_vals":
-                self.state.setdefault(k, {})
-                for m, vals in params[k].items():
-                    self.state[k].setdefault(m, jnp.array(vals))
-            else:
-                self.state.setdefault(k, jnp.array(params[k]))
-
-    def get_params(self):
-        """
-        Transform the current model state to optimization parameter values
-        """
-        self._validate_state()
-
-        params = {}
-        for k in self.state:
-            if k == "nu":
-                params["ln_nu"] = jnp.log(self.state[k])
-            elif k == "e_vals":
-                params[k] = {}
-                for m, vals in self.state[k].items():
-                    params[k][m] = jnp.array(vals)
-            else:
-                params[k] = jnp.array(self.state[k])
-
-        return params
-
-    @partial(jax.jit, static_argnames=["self"])
-    def get_es(self, rz_prime):
-        """
-        Compute the Fourier m-order coefficients
-        """
-        self._validate_state(["e_vals"])
-        e_vals = self.state["e_vals"]
-
-        es = {}
-        for m, vals in e_vals.items():
-            tmp_e = self.e_signs[m] * jnp.cumsum(
-                jnp.concatenate((jnp.array([0.0]), jnp.array(vals)))
-            )
-            es[m] = InterpolatedUnivariateSpline(self.e_knots[m], tmp_e, k=self.e_k)(
-                rz_prime
-            )
-        return es
-
-    @partial(jax.jit, static_argnames=["self"])
-    def z_vz_to_rz_theta_prime(self, z, vz):
-        r"""
-        Compute :math:`r_z'` (``rz_prime``) and :math:`\theta_z'` (``theta_prime``)
-        """
-        self._validate_state(["z0", "vz0", "nu"])
-
-        x = (vz - self.state["vz0"]) / jnp.sqrt(self.state["nu"])
-        y = (z - self.state["z0"]) * jnp.sqrt(self.state["nu"])
+        x = (vz - params["vz0"]) / jnp.sqrt(jnp.exp(params["ln_Omega"]))
+        y = (z - params["z0"]) * jnp.sqrt(jnp.exp(params["ln_Omega"]))
 
         rz_prime = jnp.sqrt(x**2 + y**2)
         th_prime = jnp.arctan2(y, x)
 
         return rz_prime, th_prime
 
-    z_vz_to_rz_theta_prime_arr = jax.vmap(z_vz_to_rz_theta_prime, in_axes=[None, 0, 0])
+    @partial(jax.jit, static_argnames=["self"])
+    def get_es(self, rz_prime, e_params):
+        """
+        Compute the Fourier m-order distortion coefficients
+
+        Parameters
+        ----------
+        rz_prime : numeric, array-like
+        e_params : dict
+        """
+        es = {}
+        for m, pars in e_params.items():
+            es[m] = self.e_funcs[m](rz_prime, **pars)
+        return es
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_rz(self, rz_prime, theta_prime):
+    def get_rz(self, rz_prime, theta_prime, e_params):
         """
-        Compute the distorted radius :math:`r_z`
+        Compute the "proxy action" or distorted radius :math:`r_z`
+
+        Parameters
+        ----------
+        rz_prime : numeric, array-like
+        theta_prime : numeric, array-like
+        e_params : dict
         """
-        es = self.get_es(rz_prime)
+        es = self.get_es(rz_prime, e_params)
         return rz_prime * (
             1
             + jnp.sum(
-                jnp.array([e * jnp.cos(n * theta_prime) for n, e in es.items()]), axis=0
+                jnp.array([e * jnp.cos(m * theta_prime) for m, e in es.items()]), axis=0
             )
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_rz_prime(self, rz, theta_prime):
+    def get_thetaz(self, rz_prime, theta_prime, e_params):
+        """
+        Compute the vertical phase angle
+
+        Parameters
+        ----------
+        rz_prime : numeric, array-like
+        theta_prime : numeric, array-like
+        e_params : dict
+        """
+        es = self.get_es(rz_prime, e_params)
+        # TODO: why t.f. is the π/2 needed below??
+        return theta_prime - jnp.sum(
+            jnp.array(
+                [m / (jnp.pi / 2) * e * jnp.sin(m * theta_prime) for m, e in es.items()]
+            ),
+            axis=0,
+        )
+
+    @partial(jax.jit, static_argnames=["self"])
+    def get_rz_prime(self, rz, theta_prime, e_params):
         """
         Compute the raw radius :math:`r_z'` by inverting the distortion transformation
+
+        Parameters
+        ----------
+        rz : numeric
+            The "proxy action" or distorted radius.
+        theta_prime : numeric
+            The raw "apparent" angle.
+        e_params : dict
+            Dictionary of parameter values for the distortion coefficient (e) functions.
         """
+        # TODO lots of numbers are hard-set below!
         bisec = Bisection(
-            lambda x, rrz, tt_prime: self.get_rz(x, tt_prime) - rrz,
+            lambda x, rrz, tt_prime, ee_params: self.get_rz(x, tt_prime, ee_params)
+            - rrz,
             lower=0.0,
             upper=1.0,
             maxiter=30,
@@ -215,72 +196,60 @@ class OrbitModelBase:
             check_bracket=False,
             tol=1e-4,
         )
-        return bisec.run(rz, rrz=rz, tt_prime=theta_prime).params
-
-        # The below only works for purely linear functions in e2, e4, etc., and only
-        # when they are fixed to be zero at rz=0
-        # self._validate_state()
-        # e_vals = self.state["e_vals"]
-
-        # # Shorthand
-        # thp = theta_prime
-
-        # # convert e_vals and e_knots to slope and intercept
-        # e_as = {k: e_vals[k][0] / self.e_knots[k][1] for k in e_vals}
-        # terms2 = jnp.sum(jnp.array([e_as[k] * jnp.cos(k * thp) for k in e_as]),
-        # axis=0)
-        # return (2 * rz) / (1 + jnp.sqrt(1 + 4 * rz * terms2))
+        return bisec.run(rz, rrz=rz, tt_prime=theta_prime, ee_params=e_params).params
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_z(self, rz, theta_prime):
-        self._validate_state()
-        nu = self.state["nu"]
-        rzp = self.get_rz_prime(rz, theta_prime)
-        return rzp * jnp.sin(theta_prime) / jnp.sqrt(nu)
+    def get_z(self, rz, theta_prime, params):
+        rzp = self.get_rz_prime(rz, theta_prime, params["e_params"])
+        return rzp * jnp.sin(theta_prime) / jnp.sqrt(jnp.exp(params["ln_Omega"]))
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_vz(self, rz, theta_prime):
-        self._validate_state()
-        nu = self.state["nu"]
-        rzp = self.get_rz_prime(rz, theta_prime)
-        return rzp * jnp.cos(theta_prime) * jnp.sqrt(nu)
+    def get_vz(self, rz, theta_prime, params):
+        rzp = self.get_rz_prime(rz, theta_prime, params["e_params"])
+        return rzp * jnp.cos(theta_prime) * jnp.sqrt(jnp.exp(params["ln_Omega"]))
 
     @partial(jax.jit, static_argnames=["self", "N_grid"])
-    def _get_Tz_Jz_thetaz(self, z, vz, N_grid):
-        rzp_, thp_ = self.z_vz_to_rz_theta_prime(z, vz)
-        rz = self.get_rz(rzp_, thp_)
+    def _get_Tz_Jz_thetaz(self, z, vz, params, N_grid):
+        rzp_, thp_ = self.z_vz_to_rz_theta_prime(z, vz, params)
+        rz = self.get_rz(rzp_, thp_, params["e_params"])
 
-        dz_dthp_func = jax.vmap(jax.grad(self.get_z, argnums=1), in_axes=[None, 0])
+        dz_dthp_func = jax.vmap(
+            jax.grad(self.get_z, argnums=1), in_axes=[None, 0, None]
+        )
 
-        get_vz = jax.vmap(self.get_vz, in_axes=[None, 0])
+        get_vz = jax.vmap(self.get_vz, in_axes=[None, 0, None])
 
         # Grid of theta_prime to do the integral over:
         thp_grid = jnp.linspace(0, jnp.pi / 2, N_grid)
-        vz_th = get_vz(rz, thp_grid)
-        dz_dthp = dz_dthp_func(rz, thp_grid)
+        vz_th = get_vz(rz, thp_grid, params)
+        dz_dthp = dz_dthp_func(rz, thp_grid, params)
 
         Tz = 4 * simpson(dz_dthp / vz_th, thp_grid)
         Jz = 4 / (2 * jnp.pi) * simpson(dz_dthp * vz_th, thp_grid)
 
         thp_partial = jnp.linspace(0, thp_, N_grid)
-        vz_th_partial = get_vz(rz, thp_partial)
-        dz_dthp_partial = dz_dthp_func(rz, thp_partial)
+        vz_th_partial = get_vz(rz, thp_partial, params)
+        dz_dthp_partial = dz_dthp_func(rz, thp_partial, params)
         dt = simpson(dz_dthp_partial / vz_th_partial, thp_partial)
         thz = 2 * jnp.pi * dt / Tz
 
         return Tz, Jz, thz
 
-    _get_Tz_Jz_thetaz = jax.vmap(_get_Tz_Jz_thetaz, in_axes=[None, 0, 0, None])
+    _get_Tz_Jz_thetaz = jax.vmap(_get_Tz_Jz_thetaz, in_axes=[None, 0, 0, None, None])
 
     @u.quantity_input
-    def get_aaf(self, z: u.kpc, vz: u.km / u.s, N_grid=101):
+    def compute_action_angle(self, z: u.kpc, vz: u.km / u.s, params, N_grid=101):
         """
         Compute the vertical period, action, and angle given input phase-space
         coordinates.
+
+        Parameters
+        ----------
+        TODO
         """
         z = z.decompose(self.unit_sys).value
         vz = vz.decompose(self.unit_sys).value
-        Tz, Jz, thz = self._get_Tz_Jz_thetaz(z, vz, N_grid)
+        Tz, Jz, thz = self._get_Tz_Jz_thetaz(z, vz, params, N_grid)
 
         tbl = at.QTable()
         tbl["T_z"] = Tz * self.unit_sys["time"]
@@ -294,7 +263,7 @@ class OrbitModelBase:
     def objective(self):
         pass
 
-    def optimize(self, params0=None, bounds=None, jaxopt_kwargs=None, **data):
+    def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
         """
         Parameters
         ----------
@@ -309,14 +278,20 @@ class OrbitModelBase:
         jaxopt_result : TODO
             TODO
         """
-        if params0 is None:
-            params0 = self.get_params()
+        import numpy as np
 
         if jaxopt_kwargs is None:
             jaxopt_kwargs = dict()
         jaxopt_kwargs.setdefault("maxiter", 16384)
 
+        vals, treedef = jax.tree_util.tree_flatten(params0)
+        params0 = treedef.unflatten([np.array(x, dtype=np.float64) for x in vals])
+
         if bounds is not None:
+            # Detect packed bounds (a single dict):
+            if isinstance(bounds, dict):
+                bounds = self.unpack_bounds(bounds)
+
             jaxopt_kwargs.setdefault("method", "L-BFGS-B")
             optimizer = jaxopt.ScipyBoundedMinimize(
                 fun=self.objective,
@@ -334,53 +309,100 @@ class OrbitModelBase:
                 "Optimization failed! See the returned result object for more "
                 "information, but the model state was not updated"
             )
-        else:
-            self.set_state(res.params, overwrite=True)
 
         return res
 
-    def copy(self):
-        knot_name = f"{self._spl_name}_knots"
-        kw = {knot_name: getattr(self, knot_name)}
-        k_name = f"{self._spl_name}_k"
-        kw[k_name] = getattr(self, k_name)
-        obj = self.__class__(
-            e_knots=self.e_knots,
-            e_signs=self.e_signs,
-            e_k=self.e_k,
-            unit_sys=self.unit_sys,
-            **kw,
-        )
-        obj.set_state(self.state, overwrite=True)
-        return obj
+    @classmethod
+    def unpack_bounds(cls, bounds):
+        """
+        Split a bounds dictionary that is specified like: {"key": (lower, upper)} into
+        two bounds dictionaries for the lower and upper bounds separately, e.g., for the
+        example above: {"key": lower} and {"key": upper}.
+        """
+        import numpy as np
+
+        def clean_dict(d):
+            if isinstance(d, dict):
+                return {k: clean_dict(v) for k, v in d.items()}
+            else:
+                d = np.array(d)
+                assert d.shape[0] == 2
+                return d
+
+        # Make sure all tuples / lists become arrays:
+        clean_bounds = clean_dict(bounds)
+
+        vals, treedef = jax.tree_util.tree_flatten(clean_bounds)
+
+        bounds_l = treedef.unflatten([np.array(x[0], dtype=np.float64) for x in vals])
+        bounds_r = treedef.unflatten([np.array(x[1], dtype=np.float64) for x in vals])
+
+        return bounds_l, bounds_r
+
+    def check_e_funcs(self, e_params, rz_prime_max=1.0):
+        """
+        Check that the parameter values and functions used for the e_m(r_z') functions
+        are valid given the condition that d(r_z)/d(r_z') > 0.
+        """
+        import numpy as np
+
+        # TODO: 16 is a magic number
+        rz_primes = np.linspace(np.sqrt(1e-3), np.sqrt(rz_prime_max), 16) ** 2
+
+        # TODO: potential issue if order of arguments in e_funcs() call is different
+        # from the order of the values in the e_params dictionary...
+        d_em_d_rzp_funcs = {
+            m: jax.vmap(
+                jax.grad(self.e_funcs[m], argnums=0),
+                in_axes=[0] + [None] * len(e_params[m]),
+            )
+            for m in self.e_funcs.keys()
+        }
+
+        thps = np.linspace(0, np.pi / 2, 128)
+        checks = np.zeros((len(rz_primes), len(thps)))
+
+        for j, thp in enumerate(thps):
+            checks[:, j] = jnp.sum(
+                jnp.array(
+                    [
+                        jnp.cos(m * thp)
+                        * (
+                            e_func(rz_primes, **e_params[m])
+                            + rz_primes
+                            * d_em_d_rzp_funcs[m](rz_primes, *e_params[m].values())
+                        )
+                        for m, e_func in self.e_funcs.items()
+                    ]
+                ),
+                axis=0,
+            )
+
+        # This condition has to be met such that d(r_z)/d(r_z') > 0 at all theta_z':
+        return np.all(checks > -1), checks
 
 
 class DensityOrbitModel(OrbitModelBase):
-    _spl_name = "ln_dens"
-
-    def __init__(
-        self, ln_dens_knots, e_knots, e_signs, e_k=1, ln_dens_k=1, unit_sys=galactic
-    ):
-        f"""
-        {OrbitModelBase.__init__.__doc__.split('Parameters')[0]}
+    def __init__(self, ln_dens_func, e_funcs=None, unit_sys=galactic):
+        """
+        {intro}
 
         Parameters
         ----------
-        ln_dens_knots : array_like
-            The knot locations for the spline that controls the density function. These
-            are locations in :math:`r_z`.
-        {OrbitModelBase.__init__.__doc__.split('----------')[1]}
-        dens_k : int (optional)
-            The order of the spline used for the density function. Default: 1, linear.
-            Only k=2 (quadratic) or k=3 (cubic) are supported.
-
+        ln_dens_func : callable (optional)
+            TODO
+        {params}
         """
-        self.ln_dens_knots = jnp.array(ln_dens_knots)
-        self.ln_dens_k = int(ln_dens_k)
-        super().__init__(e_knots=e_knots, e_signs=e_signs, e_k=e_k, unit_sys=unit_sys)
+        super().__init__(e_funcs=e_funcs, unit_sys=unit_sys)
+        self.ln_dens_func = jax.jit(ln_dens_func)
+
+    __init__.__doc__ = __init__.__doc__.format(
+        intro=OrbitModelBase.__init__.__doc__.split("Parameters")[0].rstrip(),
+        params=OrbitModelBase.__init__.__doc__.split("----------")[1].lstrip(),
+    )
 
     @u.quantity_input
-    def get_params_init(self, z: u.kpc, vz: u.km / u.s):
+    def get_params_init(self, z: u.kpc, vz: u.km / u.s, ln_dens_params0=None):
         """
         Estimate initial model parameters from the data
 
@@ -388,11 +410,7 @@ class DensityOrbitModel(OrbitModelBase):
         ----------
         z : quantity-like or array-like
         vz : quantity-like or array-like
-
-        Returns
-        -------
-        model : `VerticalOrbitModel`
-            A copy of the initial model with state set to initial parameter estimates.
+        ln_dens_params0 : dict (optional)
         """
         import numpy as np
 
@@ -403,10 +421,8 @@ class DensityOrbitModel(OrbitModelBase):
         std_vz = 1.5 * MAD(vz, ignore_nan=True)
         nu = std_vz / std_z
 
-        model = self.copy()
-
-        model.set_state({"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "nu": nu})
-        rzp, _ = model.z_vz_to_rz_theta_prime_arr(z, vz)
+        pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
+        rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
 
         max_rz = np.nanpercentile(rzp, 99.5)
         rz_bins = np.linspace(0, max_rz, 25)  # TODO: fixed number
@@ -417,44 +433,47 @@ class DensityOrbitModel(OrbitModelBase):
         # TODO: WTF - this is a total hack -- why is this needed???
         ln_dens = ln_dens - 8.6
 
-        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=self.ln_dens_k)
-        ln_dens_vals = spl(model.ln_dens_knots)
+        if ln_dens_params0 is not None:
+            # Fit the specified ln_dens_func to the measured densities
+            # This is a BAG O' HACKS!
+            spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=3)
+            xeval = np.geomspace(1e-3, np.nanmax(xc), 32)  # MAGIC NUMBER:
 
-        # Transform to parameters:
-        ln_dens_pars = np.concatenate(
-            (ln_dens_vals[0:1], np.clip(-np.diff(ln_dens_vals), 0.0, None))
-        )
-        model.set_state({"ln_dens_vals": ln_dens_pars})
+            def obj(params, x, data_y):
+                model_y = self.ln_dens_func(x, **params)
+                return jnp.sum((model_y - data_y) ** 2)
 
-        # TODO: is there a better way to estimate these?
-        e_vals = {}
-        e_vals[2] = jnp.full(len(self.e_knots[2]) - 1, 0.1 / len(self.e_knots[2]))
-        e_vals[4] = jnp.full(len(self.e_knots[4]) - 1, 0.05 / len(self.e_knots[4]))
-        for m in self.e_knots.keys():
-            if m in e_vals:
-                continue
-            e_vals[m] = jnp.zeros(len(self.e_knots[m]) - 1)
-        model.set_state({"e_vals": e_vals})
+            optim = jaxopt.ScipyMinimize(fun=obj, method="BFGS")
+            res = optim.run(init_params=ln_dens_params0, x=xeval, data_y=spl(xeval))
+            if res.state.success:
+                pars0["ln_dens_params"] = res.params
+            else:
+                warn(
+                    "Initial parameter estimation failed: Failed to estimate "
+                    "parameters of log-density function `ln_dens_func()`",
+                    RuntimeWarning,
+                )
 
-        model._validate_state()
+        # If default e_funcs, we can specify some defaults:
+        pars0.update(self._get_default_e_params())
 
-        return model
+        return pars0
 
-    @u.quantity_input
-    def get_data_im(self, z: u.kpc, vz: u.km / u.s, bins):
+    @classmethod
+    def get_data_im(cls, z, vz, bins):
         """
         Convert the raw data (stellar positions and velocities z, vz) into a binned 2D
         histogram / image of number counts.
 
         Parameters
         ----------
-        z : quantity-like
-        vz : quantity-like
+        z : array-like
+        vz : array-like
         bins : dict
         """
         data_H, xe, ye = jnp.histogram2d(
-            vz.decompose(self.unit_sys).value,
-            z.decompose(self.unit_sys).value,
+            vz,
+            z,
             bins=(bins["vz"], bins["z"]),
         )
         xc = 0.5 * (xe[:-1] + xe[1:])
@@ -464,28 +483,19 @@ class DensityOrbitModel(OrbitModelBase):
         return {"z": jnp.array(yc), "vz": jnp.array(xc), "H": jnp.array(data_H.T)}
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_ln_dens(self, rz):
-        self._validate_state()
-        ln_dens_vals = self.state["ln_dens_vals"]
-
-        # Enforce that density goes down:
-        vals = jnp.cumsum(jnp.concatenate((ln_dens_vals[0:1], -ln_dens_vals[1:])))
-        spl = InterpolatedUnivariateSpline(self.ln_dens_knots, vals, k=self.ln_dens_k)
-        return spl(rz)
+    def get_ln_dens(self, rz, params):
+        return self.ln_dens_func(rz, **params["ln_dens_params"])
 
     @partial(jax.jit, static_argnames=["self"])
-    def ln_density(self, z, vz):
-        self._validate_state()
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz)
-        rz = self.get_rz(rzp, thp)
-        return self.get_ln_dens(rz)
+    def ln_density(self, z, vz, params):
+        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
+        rz = self.get_rz(rzp, thp, params["e_params"])
+        return self.get_ln_dens(rz, params)
 
     @partial(jax.jit, static_argnames=["self"])
     def ln_poisson_likelihood(self, params, z, vz, H):
-        self.set_state(params, overwrite=True)
-
         # Expected number:
-        ln_Lambda = self.ln_density(z, vz)
+        ln_Lambda = self.ln_density(z, vz, params)
 
         # gammaln(x+1) = log(factorial(x))
         return (H * ln_Lambda - jnp.exp(ln_Lambda) - gammaln(H + 1)).sum()
@@ -496,42 +506,48 @@ class DensityOrbitModel(OrbitModelBase):
 
 
 class LabelOrbitModel(OrbitModelBase):
-    _spl_name = "label"
-
-    def __init__(
-        self, label_knots, e_knots, e_signs, e_k=1, label_k=3, unit_sys=galactic
-    ):
-        f"""
-        {OrbitModelBase.__init__.__doc__.split('Parameters')[0]}
+    def __init__(self, label_func, e_funcs=None, unit_sys=galactic):
+        """
+        {intro}
 
         Parameters
         ----------
-        label_knots : array_like
-            The knot locations for the spline that controls the label function. These
-            are locations in :math:`r_z`.
-        {OrbitModelBase.__init__.__doc__.split('----------')[1]}
-
+        label_func : callable (optional)
+            TODO
+        {params}
         """
-        self.label_knots = jnp.array(label_knots)
-        self.label_k = int(label_k)
-        super().__init__(e_knots=e_knots, e_signs=e_signs, e_k=e_k, unit_sys=unit_sys)
+        super().__init__(e_funcs=e_funcs, unit_sys=unit_sys)
+        self.label_func = jax.jit(label_func)
+
+    __init__.__doc__ = __init__.__doc__.format(
+        intro=OrbitModelBase.__init__.__doc__.split("Parameters")[0].rstrip(),
+        params=OrbitModelBase.__init__.__doc__.split("----------")[1].lstrip(),
+    )
 
     @u.quantity_input
-    def get_params_init(self, z: u.kpc, vz: u.km / u.s, label_stat):
+    def get_params_init(self, z: u.kpc, vz: u.km / u.s, label, label_params0=None):
+        """
+        Estimate initial model parameters from the data
+
+        Parameters
+        ----------
+        z : quantity-like or array-like
+        vz : quantity-like or array-like
+        label : array-like
+
+        """
         import numpy as np
         import scipy.interpolate as sci
 
         z = z.decompose(self.unit_sys).value
         vz = vz.decompose(self.unit_sys).value
 
-        model = self.copy()
-
         # First, estimate nu0 with some crazy bullshit:
-        med_stat = np.nanpercentile(label_stat, 15)
+        med_stat = np.nanpercentile(label, 25)
 
         fac = 0.02  # MAGIC NUMBER
         for _ in range(16):  # max number of iterations
-            annulus_idx = np.abs(label_stat.ravel() - med_stat) < fac * np.abs(med_stat)
+            annulus_idx = np.abs(label.ravel() - med_stat) < fac * np.abs(med_stat)
             if annulus_idx.sum() < 0.05 * len(annulus_idx):  # MAGIC NUMBER
                 fac *= 2
             else:
@@ -544,46 +560,53 @@ class LabelOrbitModel(OrbitModelBase):
             np.abs(z.ravel()[annulus_idx]), 25
         )
 
-        model.set_state({"z0": 0.0, "vz0": 0.0, "nu": nu})
-        rzp, _ = model.z_vz_to_rz_theta_prime_arr(z, vz)
+        pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
+        rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
 
-        # Now estimate the label function spline values, again, with some craycray:
-        bins = np.linspace(0, 1.0, 9) ** 2  # TODO: arbitrary bin max = 1
-        stat = binned_statistic(
-            rzp.ravel(), label_stat.ravel(), bins=bins, statistic=np.nanmedian
-        )
-        xc = 0.5 * (stat.bin_edges[:-1] + stat.bin_edges[1:])
+        if label_params0 is not None:
+            # Now estimate the label function spline values, again, with some craycray:
+            bins = np.linspace(0, 1.0, 9) ** 2  # TODO: arbitrary bin max = 1
+            stat = binned_statistic(
+                rzp.ravel(), label.ravel(), bins=bins, statistic=np.nanmedian
+            )
+            xc = 0.5 * (stat.bin_edges[:-1] + stat.bin_edges[1:])
 
-        simple_spl = sci.InterpolatedUnivariateSpline(
-            xc[np.isfinite(stat.statistic)],
-            stat.statistic[np.isfinite(stat.statistic)],
-            k=1,
-        )
-        model.set_state({"label_vals": simple_spl(model.label_knots)})
+            # Fit the specified ln_dens_func to the measured densities
+            # This is a BAG O' HACKS!
+            spl = sci.InterpolatedUnivariateSpline(
+                xc[np.isfinite(stat.statistic)],
+                stat.statistic[np.isfinite(stat.statistic)],
+                k=1,
+            )
+            xeval = np.geomspace(1e-3, np.nanmax(xc), 32)  # MAGIC NUMBER:
 
-        # Lastly, set all e vals to 0
-        e_vals = {}
-        e_vals[2] = jnp.full(len(self.e_knots[2]) - 1, 0.1 / len(self.e_knots[2]))
-        e_vals[4] = jnp.full(len(self.e_knots[4]) - 1, 0.05 / len(self.e_knots[4]))
-        for m in self.e_knots.keys():
-            if m in e_vals:
-                continue
-            e_vals[m] = jnp.zeros(len(self.e_knots[m]) - 1)
-        model.set_state({"e_vals": e_vals})
+            def obj(params, x, data_y):
+                model_y = self.label_func(x, **params)
+                return jnp.sum((model_y - data_y) ** 2)
 
-        model._validate_state()
+            optim = jaxopt.ScipyMinimize(fun=obj, method="BFGS")
+            res = optim.run(init_params=label_params0, x=xeval, data_y=spl(xeval))
+            if res.state.success:
+                pars0["label_params"] = res.params
+            else:
+                warn(
+                    "Initial parameter estimation failed: Failed to estimate "
+                    "parameters of label function `label_func()`",
+                    RuntimeWarning,
+                )
 
-        return model
+        # If default e_funcs, we can specify some defaults:
+        pars0.update(self._get_default_e_params())
 
-    @u.quantity_input
-    def get_data_im(
-        self, z: u.kpc, vz: u.km / u.s, label, bins, **binned_statistic_kwargs
-    ):
+        return pars0
+
+    @classmethod
+    def get_data_im(cls, z, vz, label, bins, **binned_statistic_kwargs):
         import numpy as np
 
         stat = binned_statistic_2d(
-            vz.decompose(self.unit_sys).value,
-            z.decompose(self.unit_sys).value,
+            vz,
+            z,
             label,
             bins=(bins["vz"], bins["z"]),
             **binned_statistic_kwargs,
@@ -595,8 +618,8 @@ class LabelOrbitModel(OrbitModelBase):
         # Compute label statistic error
         err_floor = 0.1
         stat_err = binned_statistic_2d(
-            vz.decompose(self.unit_sys).value,
-            z.decompose(self.unit_sys).value,
+            vz,
+            z,
             label,
             bins=(bins["vz"], bins["z"]),
             statistic=lambda x: np.sqrt((1.5 * MAD(x)) ** 2 + err_floor**2)
@@ -611,34 +634,24 @@ class LabelOrbitModel(OrbitModelBase):
         }
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_label(self, rz):
-        self._validate_state()
-        label_vals = self.state["label_vals"]
-        spl = InterpolatedUnivariateSpline(self.label_knots, label_vals, k=self.label_k)
-        return spl(rz)
+    def get_label(self, rz, params):
+        return self.label_func(rz, **params["label_params"])
 
     @partial(jax.jit, static_argnames=["self"])
-    def label(self, z, vz):
-        self._validate_state()
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz)
-        rz = self.get_rz(rzp, thp)
-        return self.get_label(rz)
+    def label(self, z, vz, params):
+        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
+        rz = self.get_rz(rzp, thp, params["e_params"])
+        return self.get_label(rz, params)
 
     @partial(jax.jit, static_argnames=["self"])
-    def ln_label_likelihood(self, params, z, vz, label_stat, label_stat_err):
-        self.set_state(params, overwrite=True)
-        self._validate_state()
+    def ln_label_likelihood(self, params, z, vz, label, label_err):
+        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
+        rz = self.get_rz(rzp, thp, params["e_params"])
+        model_label = self.get_label(rz, params)
 
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz)
-        rz = self.get_rz(rzp, thp)
-        model_label = self.get_label(rz)
-
-        # log-normal
-        return -0.5 * jnp.nansum((label_stat - model_label) ** 2 / label_stat_err**2)
+        # log of a gaussian
+        return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
 
     @partial(jax.jit, static_argnames=["self"])
-    def objective(self, params, z, vz, label_stat, label_stat_err):
-        return (
-            -(self.ln_label_likelihood(params, z, vz, label_stat, label_stat_err))
-            / label_stat.size
-        )
+    def objective(self, params, z, vz, label, label_err):
+        return -(self.ln_label_likelihood(params, z, vz, label, label_err)) / label.size

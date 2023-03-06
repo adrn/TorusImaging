@@ -5,7 +5,13 @@ from astropy.convolution import Gaussian2DKernel, convolve
 
 
 def plot_data_models_residual(
-    data_H, model0, model, smooth_residual=None, vlim_residual=0.3, usys=None
+    data_H,
+    model,
+    params_init,
+    params_fit,
+    smooth_residual=None,
+    vlim_residual=0.3,
+    usys=None,
 ):
     """
     Make a 4 panel figure showing data (number counts of stars in z-vz), initial model,
@@ -39,11 +45,15 @@ def plot_data_models_residual(
     cs = axes[0].pcolormesh(data_H["vz"], data_H["z"], data_H["H"], **vlim)
 
     # Initial model:
-    model0_H = np.exp(model0.ln_density(z=data_H["z"], vz=data_H["vz"]))
+    model0_H = np.exp(
+        model.ln_density(z=data_H["z"], vz=data_H["vz"], params=params_init)
+    )
     cs = axes[1].pcolormesh(data_H["vz"], data_H["z"], model0_H, **vlim)
 
     # Fitted model:
-    model_H = np.exp(model.ln_density(z=data_H["z"], vz=data_H["vz"]))
+    model_H = np.exp(
+        model.ln_density(z=data_H["z"], vz=data_H["vz"], params=params_fit)
+    )
     cs = axes[2].pcolormesh(data_H["vz"], data_H["z"], model_H, **vlim)
     fig.colorbar(cs, ax=axes[:3], aspect=40)
 
