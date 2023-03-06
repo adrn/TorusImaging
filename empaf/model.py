@@ -631,8 +631,8 @@ class LabelOrbitModel(OrbitModelBase):
         return {
             "z": jnp.array(yc),
             "vz": jnp.array(xc),
-            "label_stat": jnp.array(stat.statistic.T),
-            "label_stat_err": jnp.array(stat_err.statistic.T),
+            "label": jnp.array(stat.statistic.T),
+            "label_err": jnp.array(stat_err.statistic.T),
         }
 
     @partial(jax.jit, static_argnames=["self"])
