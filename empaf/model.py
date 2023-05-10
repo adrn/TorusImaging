@@ -263,15 +263,16 @@ class OrbitModelBase:
         return tbl
 
     # Computing vertical acceleration:
+    @partial(jax.jit, static_argnames=["self"])
     def _help_rootfind(self, vz, z, rz, pars):
         rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, pars)
         rz_test = self.get_rz(rzp, thp, pars["e_params"])
         return rz - rz_test
 
-    @jax.jit
+    @partial(jax.jit, static_argnames=["self", "upper", "maxiter", "tol"])
     def tmp_get_vz(self, z, rz, params, upper=0.3, maxiter=128, tol=1e-6):
         bisec = Bisection(
-            self.help_rootfind,
+            self._help_rootfind,
             lower=0.0,
             upper=upper,
             maxiter=maxiter,
@@ -283,10 +284,8 @@ class OrbitModelBase:
         vz0 = z * jnp.exp(params["ln_Omega"])
         return bisec.run(vz0, z=z, rz=rz, pars=params).params
 
-    _get_vz_z_rz = jax.vmap(tmp_get_vz, in_axes=[None, 0, 0, None, None, None, None])
-    _dvz_dz_z_rz = jax.vmap(
-        jax.grad(tmp_get_vz), in_axes=[None, 0, 0, None, None, None, None]
-    )
+    _get_vz_z_rz = jax.vmap(tmp_get_vz, in_axes=[None, 0, 0, None])
+    _dvz_dz_z_rz = jax.vmap(jax.grad(tmp_get_vz, argnums=1), in_axes=[None, 0, 0, None])
 
     @u.quantity_input(z=u.kpc, vz=u.km / u.s)
     def get_az(self, z, vz, params, Bisection_kwargs=None):
@@ -314,7 +313,7 @@ class OrbitModelBase:
         rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
         rz = self.get_rz(rzp, thp, params["e_params"])
 
-        dvz_dz = self._dvz_dz_z_rz(z, rz, params)
+        dvz_dz = self._dvz_dz_z_rz(z, rz, params, **Bisection_kwargs)
         az = (vz * dvz_dz).reshape(in_shape)
 
         return az * self.unit_sys["acceleration"]
