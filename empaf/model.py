@@ -529,37 +529,22 @@ class DensityOrbitModel(OrbitModelBase):
         """
         import numpy as np
 
-        z = z.decompose(self.unit_sys).value
-        vz = vz.decompose(self.unit_sys).value
-
-        std_z = 1.5 * MAD(z, ignore_nan=True)
-        std_vz = 1.5 * MAD(vz, ignore_nan=True)
-        nu = std_vz / std_z
-
-        pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
-        rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
-
-        max_rz = np.nanpercentile(rzp, 99.5)
-        rz_bins = np.linspace(0, max_rz, 25)  # TODO: fixed number
-        dens_H, xe = np.histogram(rzp, bins=rz_bins)
-        xc = 0.5 * (xe[:-1] + xe[1:])
-        ln_dens = np.log(dens_H) - np.log(2 * np.pi * xc * (xe[1:] - xe[:-1]))
-
-        # TODO: WTF - this is a total hack -- why is this needed???
-        ln_dens = ln_dens - 8.6
+        pars0 = self.get_nu_center(z, vz)
+        xx, yy, ln_dens_spl = self.get_data_ln_dens_func(z, vz, pars0)
 
         if ln_dens_params0 is not None:
             # Fit the specified ln_dens_func to the measured densities
             # This is a BAG O' HACKS!
-            spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=3)
-            xeval = np.geomspace(1e-3, np.nanmax(xc), 32)  # MAGIC NUMBER:
+            xeval = np.geomspace(1e-3, np.nanmax(xx), 32)  # MAGIC NUMBER:
 
             def obj(params, x, data_y):
                 model_y = self.ln_dens_func(x, **params)
                 return jnp.sum((model_y - data_y) ** 2)
 
             optim = jaxopt.ScipyMinimize(fun=obj, method="BFGS")
-            res = optim.run(init_params=ln_dens_params0, x=xeval, data_y=spl(xeval))
+            res = optim.run(
+                init_params=ln_dens_params0, x=xeval, data_y=ln_dens_spl(xeval)
+            )
             if res.state.success:
                 pars0["ln_dens_params"] = res.params
             else:
