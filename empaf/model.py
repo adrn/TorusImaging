@@ -462,6 +462,62 @@ class DensityOrbitModel(OrbitModelBase):
     )
 
     @u.quantity_input
+    def get_nu_center(self, z: u.kpc, vz: u.km / u.s):
+        """
+        Estimate the asymptotic midplane frequency and zero-point in z, vz
+
+        Parameters
+        ----------
+        z : quantity-like or array-like
+        vz : quantity-like or array-like
+        """
+        import numpy as np
+
+        z = z.decompose(self.unit_sys).value
+        vz = vz.decompose(self.unit_sys).value
+
+        std_z = 1.5 * MAD(z, ignore_nan=True)
+        std_vz = 1.5 * MAD(vz, ignore_nan=True)
+        nu = std_vz / std_z
+
+        pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
+        return pars0
+
+    @u.quantity_input
+    def get_data_ln_dens_func(
+        self, z: u.kpc, vz: u.km / u.s, pars0=None, N_rz_bins=25, spl_k=3
+    ):
+        """
+        Return a function to compute the log-density of the data
+
+        Parameters
+        ----------
+        z : quantity-like or array-like
+        vz : quantity-like or array-like
+        """
+        import numpy as np
+
+        if pars0 is None:
+            pars0 = self.get_nu_center(z, vz)
+
+        z = z.decompose(self.unit_sys).value
+        vz = vz.decompose(self.unit_sys).value
+
+        rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
+
+        max_rz = np.nanpercentile(rzp, 99.5)
+        rz_bins = np.linspace(0, max_rz, N_rz_bins)
+        dens_H, xe = np.histogram(rzp, bins=rz_bins)
+        xc = 0.5 * (xe[:-1] + xe[1:])
+        ln_dens = np.log(dens_H) - np.log(2 * np.pi * xc * (xe[1:] - xe[:-1]))
+
+        # TODO: WTF - this is a total hack -- why is this needed???
+        ln_dens = ln_dens - 8.6
+
+        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=spl_k)
+        return xc, ln_dens, spl
+
+    @u.quantity_input
     def get_params_init(self, z: u.kpc, vz: u.km / u.s, ln_dens_params0=None):
         """
         Estimate initial model parameters from the data
