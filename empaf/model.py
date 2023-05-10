@@ -245,7 +245,10 @@ class OrbitModelBase:
 
         Parameters
         ----------
-        TODO
+        z : `astropy.units.Quantity`
+        vz : `astropy.units.Quantity`
+        params : dict
+        N_grid : int (optional)
         """
         z = z.decompose(self.unit_sys).value
         vz = vz.decompose(self.unit_sys).value
@@ -258,6 +261,63 @@ class OrbitModelBase:
         tbl["theta_z"] = thz * self.unit_sys["angle"]
 
         return tbl
+
+    # Computing vertical acceleration:
+    def _help_rootfind(self, vz, z, rz, pars):
+        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, pars)
+        rz_test = self.get_rz(rzp, thp, pars["e_params"])
+        return rz - rz_test
+
+    @jax.jit
+    def tmp_get_vz(self, z, rz, params, upper=0.3, maxiter=128, tol=1e-6):
+        bisec = Bisection(
+            self.help_rootfind,
+            lower=0.0,
+            upper=upper,
+            maxiter=maxiter,
+            jit=True,
+            unroll=True,
+            check_bracket=False,
+            tol=tol,
+        )
+        vz0 = z * jnp.exp(params["ln_Omega"])
+        return bisec.run(vz0, z=z, rz=rz, pars=params).params
+
+    _get_vz_z_rz = jax.vmap(tmp_get_vz, in_axes=[None, 0, 0, None, None, None, None])
+    _dvz_dz_z_rz = jax.vmap(
+        jax.grad(tmp_get_vz), in_axes=[None, 0, 0, None, None, None, None]
+    )
+
+    @u.quantity_input(z=u.kpc, vz=u.km / u.s)
+    def get_az(self, z, vz, params, Bisection_kwargs=None):
+        """
+        Compute the vertical acceleration at a given phase-space coordinate.
+
+        Parameters
+        ----------
+        z : `astropy.units.Quantity`
+        vz : `astropy.units.Quantity`
+        params : dict
+        Bisection_kwargs : dict (optional)
+        """
+        import numpy as np
+
+        if Bisection_kwargs is None:
+            Bisection_kwargs = {}
+
+        z = np.atleast_1d(z.decompose(self.unit_sys).value)
+        vz = np.atleast_1d(vz.decompose(self.unit_sys).value)
+        in_shape = z.shape
+        z = z.ravel()
+        vz = vz.ravel()
+
+        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
+        rz = self.get_rz(rzp, thp, params["e_params"])
+
+        dvz_dz = self._dvz_dz_func(z, rz, params)
+        az = (vz * dvz_dz).reshape(in_shape)
+
+        return az * self.unit_sys["acceleration"]
 
     @abc.abstractmethod
     def objective(self):

@@ -95,6 +95,12 @@ def generalized_logistic_func_alt(t, t0, F1, B, C, nu, t1=1.0):
 
 @jax.jit
 def monotonic_quadratic_spline(x, y, x_eval):
+    """
+    The zeroth element in the knot value array is the value of the spline at x[0], but
+    all other values passed in via y are the *derivatives* of the function at the knot
+    locations x[1:].
+    """
+
     # Checked that using .at[].set() is faster than making padded arrays and stacking
     x = jnp.array(x)
     y = jnp.array(y)
