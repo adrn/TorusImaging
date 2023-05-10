@@ -314,7 +314,7 @@ class OrbitModelBase:
         rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
         rz = self.get_rz(rzp, thp, params["e_params"])
 
-        dvz_dz = self._dvz_dz_func(z, rz, params)
+        dvz_dz = self._dvz_dz_z_rz(z, rz, params)
         az = (vz * dvz_dz).reshape(in_shape)
 
         return az * self.unit_sys["acceleration"]
