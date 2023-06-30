@@ -440,6 +440,41 @@ class OrbitModelBase:
         # This condition has to be met such that d(r_z)/d(r_z') > 0 at all theta_z':
         return np.all(checks > -1), checks
 
+    def error_propagate_uncertainty(self, params, data):
+        """
+        EXPERIMENTAL
+
+        Propagate uncertainty using the Fisher information matrix.
+        """
+        import numpy as np
+
+        treedef = jax.tree_util.tree_structure(params)
+
+        def wrapper(flat_params, data, sizes):
+            arrs = []
+            i = 0
+            for size in sizes:
+                arrs.append(jnp.array(flat_params[i : i + size]))
+                i += size
+            params = jax.tree_util.tree_unflatten(treedef, arrs)
+            return -2 * self.ln_poisson_likelihood(params, **data)
+
+        flattened = jax.tree_util.tree_flatten(params)[0]
+        sizes = [x.size for x in flattened]
+        flat_params = np.concatenate([np.atleast_1d(x) for x in flattened])
+
+        fisher = jax.hessian(wrapper)(flat_params, data, sizes)
+        fisher_inv = np.linalg.inv(fisher)
+
+        flat_param_uncs = np.sqrt(np.diag(fisher_inv))
+
+        arrs = []
+        i = 0
+        for size in sizes:
+            arrs.append(jnp.array(flat_param_uncs[i : i + size]))
+            i += size
+        return jax.tree_util.tree_unflatten(treedef, arrs)
+
 
 class DensityOrbitModel(OrbitModelBase):
     def __init__(self, ln_dens_func, e_funcs=None, unit_sys=galactic):
