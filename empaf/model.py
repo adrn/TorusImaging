@@ -262,61 +262,62 @@ class OrbitModelBase:
 
         return tbl
 
-    # Computing vertical acceleration:
     @partial(jax.jit, static_argnames=["self"])
-    def _help_rootfind(self, vz, z, rz, pars):
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, pars)
-        rz_test = self.get_rz(rzp, thp, pars["e_params"])
-        return rz - rz_test
-
-    @partial(jax.jit, static_argnames=["self", "upper", "maxiter", "tol"])
-    def tmp_get_vz(self, z, rz, params, upper=0.3, maxiter=128, tol=1e-6):
-        bisec = Bisection(
-            self._help_rootfind,
-            lower=0.0,
-            upper=upper,
-            maxiter=maxiter,
-            jit=True,
-            unroll=True,
-            check_bracket=False,
-            tol=tol,
-        )
-        vz0 = z * jnp.exp(params["ln_Omega"])
-        return bisec.run(vz0, z=z, rz=rz, pars=params).params
-
-    _get_vz_z_rz = jax.vmap(tmp_get_vz, in_axes=[None, 0, 0, None])
-    _dvz_dz_z_rz = jax.vmap(jax.grad(tmp_get_vz, argnums=1), in_axes=[None, 0, 0, None])
-
-    @u.quantity_input(z=u.kpc, vz=u.km / u.s)
-    def get_az(self, z, vz, params, Bisection_kwargs=None):
+    def _get_de_drzps(self, rz_prime, e_params):
         """
-        Compute the vertical acceleration at a given phase-space coordinate.
+        Compute the derivatives of the Fourier m-order distortion coefficient functions
 
         Parameters
         ----------
-        z : `astropy.units.Quantity`
-        vz : `astropy.units.Quantity`
-        params : dict
-        Bisection_kwargs : dict (optional)
+        rz_prime : numeric, array-like
+        e_params : dict
         """
-        import numpy as np
+        d_es = {}
+        for m, pars in e_params.items():
+            # Workaround because of:
+            # https://github.com/google/jax/issues/7465
+            tmp = jax.vmap(partial(jax.grad(self.e_funcs[m], argnums=0), **pars), 0, 0)
+            d_es[m] = tmp(rz_prime)
+        return d_es
 
-        if Bisection_kwargs is None:
-            Bisection_kwargs = {}
+    def get_az(self, z, params):
+        """
+        Experimental.
 
-        z = np.atleast_1d(z.decompose(self.unit_sys).value)
-        vz = np.atleast_1d(vz.decompose(self.unit_sys).value)
+        Implementation of Appendix math from empirical-af paper.
+        """
+        z = jnp.atleast_1d(z.decompose(self.unit_sys).value)
         in_shape = z.shape
         z = z.ravel()
-        vz = vz.ravel()
 
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
-        rz = self.get_rz(rzp, thp, params["e_params"])
+        rzp, _ = self.z_vz_to_rz_theta_prime(z, jnp.zeros_like(z), params)
 
-        dvz_dz = self._dvz_dz_z_rz(z, rz, params, **Bisection_kwargs)
-        az = (vz * dvz_dz).reshape(in_shape)
+        Om = jnp.exp(params["ln_Omega"])
 
-        return az * self.unit_sys["acceleration"]
+        es = self.get_es(rzp, params["e_params"])
+        de_drzs = self._get_de_drzps(rzp, params["e_params"])
+
+        numer = 1 + jnp.sum(
+            jnp.array(
+                [
+                    (-1) ** (m / 2) * (es[m] + de_drzs[m] * rzp)
+                    for m in self.e_funcs.keys()
+                ]
+            ),
+            axis=0,
+        )
+        denom = 1 + jnp.sum(
+            jnp.array(
+                [
+                    (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_drzs[m] * rzp)
+                    for m in self.e_funcs.keys()
+                ]
+            ),
+            axis=0,
+        )
+        res = -(Om**2) * z * numer / denom
+
+        return res.reshape(in_shape) * self.unit_sys["acceleration"]
 
     @abc.abstractmethod
     def objective(self):
