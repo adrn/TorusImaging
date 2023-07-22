@@ -19,8 +19,8 @@ from .config import rsun as ro, vcirc as vo
 def get_o2gf_aaf(potential, w0, N_max=10, dt=1 * u.Myr, n_periods=128):
     """Wrapper around the O2GF action solver in Gala that fails more gracefully
 
-    This returns actions, angles, and frequencies for the input phase-space
-    position estimated for the specified potential.
+    This returns actions, angles, and frequencies for the input phase-space position
+    estimated for the specified potential.
     """
     aaf_units = {
         "actions": u.km / u.s * u.kpc,
@@ -87,30 +87,22 @@ def get_agama_aaf(potential, w, **kwargs):
 
     kwargs.setdefault("interp", False)
     actFinder = agama.ActionFinder(agama_pot, **kwargs)
-    agama_w = np.vstack(
-        (w.xyz.to_value(u.kpc), w.v_xyz.decompose(galactic).value)
-    ).T
+    agama_w = np.vstack((w.xyz.to_value(u.kpc), w.v_xyz.decompose(galactic).value)).T
 
     if not kwargs["interp"]:
         actions, angles, freqs = actFinder(agama_w, angles=True)
+        # order in each output is: R, z, phi
 
-        # order in each is: R, z, phi
         aaf = {
-            "actions": np.stack(
-                (actions[:, 0], actions[:, 2], actions[:, 1])  # R  # phi  # z
-            ).T
-            * u.kpc
-            * u.kpc
-            / u.Myr,
-            "angles": np.stack(
-                (angles[:, 0], angles[:, 2], angles[:, 1])  # R  # phi  # z
-            ).T
-            * u.radian,
-            "freqs": np.stack(
-                (freqs[:, 0], freqs[:, 2], freqs[:, 1])  # R  # phi  # z
-            ).T
-            * u.rad
-            / u.Myr,
+            "actions": np.stack((
+                actions[:, 0],  # R
+                actions[:, 2],  # phi
+                actions[:, 1]  # z
+            )).T * u.kpc**2 / u.Myr,
+            "angles": np.stack((angles[:, 0], angles[:, 2], angles[:, 1])  # R phi z
+                               ).T * u.radian,
+            "freqs": np.stack((freqs[:, 0], freqs[:, 2], freqs[:, 1])  # R phi z
+                              ).T * u.rad / u.Myr,
         }
 
     else:
@@ -120,10 +112,7 @@ def get_agama_aaf(potential, w, **kwargs):
         aaf = {
             "actions": np.stack(
                 (actions[:, 0], actions[:, 2], actions[:, 1])  # R  # phi  # z
-            ).T
-            * u.kpc
-            * u.kpc
-            / u.Myr
+            ).T * u.kpc * u.kpc / u.Myr
         }
 
     return at.QTable(aaf)
