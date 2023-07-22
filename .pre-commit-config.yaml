@@ -1,0 +1,33 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: end-of-file-fixer
+        # Makes sure files end in a newline and only a newline.
+        exclude: ".*(plots.*|data.*|extern.*|licenses.*|_parsetab.py)$"
+      - id: trailing-whitespace
+        # Trims trailing whitespace.
+        exclude: ".*(plots.*|data.*|extern.*|licenses.*|_parsetab.py|test_cds.py)$"
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.11.5
+    hooks:
+      - id: isort
+        name: isort (python)
+        additional_dependencies: [toml]
+
+  - repo: https://github.com/psf/black
+    rev: 22.12.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: "v0.0.215"
+    hooks:
+      - id: ruff
+        args: ["--fix", "--force-exclude"]
+
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+      - id: nbstripout
