@@ -1,9 +1,10 @@
-# Orbital Torus Imaging
+Orbital Torus Imaging
+=====================
 
 |donut|
 
-An implementation of the method of [Orbital Torus
-Imaging](https://arxiv.org/abs/2012.00015) and related tools.
+An implementation of the method of `Orbital Torus Imaging
+<https://arxiv.org/abs/2012.00015>`_ and related tools.
 
 
 Documentation
