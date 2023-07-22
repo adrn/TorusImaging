@@ -46,4 +46,4 @@ the `LICENSE <https://github.com/adrn/TorusImaging/blob/main/LICENSE>`_ file.
    :target: https://github.com/adrn/TorusImaging/blob/main/LICENSE
 .. |donut| image:: https://github.com/adrn/TorusImaging/blob/main/docs/_static/torus.webp?raw=true
    :target: https://github.com/adrn/TorusImaging
-   :width: 400
+   :width: 200
