@@ -6,14 +6,15 @@ Helper functions for computing actions using different action solving methods.
 import astropy.coordinates as coord
 import astropy.table as at
 import astropy.units as u
-import numpy as np
 import gala.dynamics as gd
 import gala.integrate as gi
 import gala.potential as gp
+import numpy as np
 from gala.units import galactic
 
 # This project
-from .config import rsun as ro, vcirc as vo
+from .config import rsun as ro
+from .config import vcirc as vo
 
 
 def get_o2gf_aaf(potential, w0, N_max=10, dt=1 * u.Myr, n_periods=128):
@@ -77,8 +78,8 @@ def get_staeckel_aaf(potential, w, delta=None):
 
 
 def get_agama_aaf(potential, w, **kwargs):
-    from totoro.potential_helpers import gala_to_agama_potential
     import agama
+    from totoro.potential_helpers import gala_to_agama_potential
 
     if isinstance(potential, gp.PotentialBase):
         agama_pot = gala_to_agama_potential(potential)
@@ -94,15 +95,16 @@ def get_agama_aaf(potential, w, **kwargs):
         # order in each output is: R, z, phi
 
         aaf = {
-            "actions": np.stack((
-                actions[:, 0],  # R
-                actions[:, 2],  # phi
-                actions[:, 1]  # z
-            )).T * u.kpc**2 / u.Myr,
-            "angles": np.stack((angles[:, 0], angles[:, 2], angles[:, 1])  # R phi z
-                               ).T * u.radian,
-            "freqs": np.stack((freqs[:, 0], freqs[:, 2], freqs[:, 1])  # R phi z
-                              ).T * u.rad / u.Myr,
+            "actions": np.stack(
+                (actions[:, 0], actions[:, 2], actions[:, 1])  # R  # phi  # z
+            ).T
+            * u.kpc**2
+            / u.Myr,
+            "angles": np.stack((angles[:, 0], angles[:, 2], angles[:, 1])).T  # R phi z
+            * u.radian,
+            "freqs": np.stack((freqs[:, 0], freqs[:, 2], freqs[:, 1])).T  # R phi z
+            * u.rad
+            / u.Myr,
         }
 
     else:
@@ -112,7 +114,10 @@ def get_agama_aaf(potential, w, **kwargs):
         aaf = {
             "actions": np.stack(
                 (actions[:, 0], actions[:, 2], actions[:, 1])  # R  # phi  # z
-            ).T * u.kpc * u.kpc / u.Myr
+            ).T
+            * u.kpc
+            * u.kpc
+            / u.Myr
         }
 
     return at.QTable(aaf)

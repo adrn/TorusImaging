@@ -6,10 +6,10 @@ import astropy.units as u
 import gala.dynamics as gd
 import numpy as np
 from scipy.optimize import minimize
+from totoro.abundance_anomaly import AbundanceAnomalyMaschine
 
 # This project
 from totoro.actions import get_agama_aaf
-from totoro.abundance_anomaly import AbundanceAnomalyMaschine
 
 
 class BaseOrbitalTorusImaging:

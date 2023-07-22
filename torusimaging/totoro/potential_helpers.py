@@ -2,9 +2,8 @@
 import agama
 import astropy.units as u
 import gala.potential as gp
-from gala.units import galactic
 import numpy as np
-
+from gala.units import galactic
 
 # TODO: move to Gala, set up with external dependencies?
 HAS_AGAMA = True

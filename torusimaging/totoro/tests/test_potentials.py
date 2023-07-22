@@ -2,7 +2,7 @@ import astropy.units as u
 import numpy as np
 
 from ..config import rsun, vcirc
-from ..potentials import potentials, galpy_potentials
+from ..potentials import galpy_potentials, potentials
 
 
 def test_vcirc():
@@ -15,11 +15,7 @@ def test_vcirc():
 
 
 def galpy_test_helper(gala_pot, galpy_pot):
-    from galpy.potential import (
-        evaluateDensities,
-        evaluatePotentials,
-        evaluatezforces,
-    )
+    from galpy.potential import evaluateDensities, evaluatePotentials, evaluatezforces
 
     ntest = 16
     Rs = np.random.uniform(1, 15, size=ntest) * u.kpc
@@ -30,7 +26,7 @@ def galpy_test_helper(gala_pot, galpy_pot):
     xyz[2] = zs
 
     assert np.allclose(
-        gala_pot.density(xyz).to_value(u.Msun / u.pc ** 3),
+        gala_pot.density(xyz).to_value(u.Msun / u.pc**3),
         evaluateDensities(galpy_pot, R=Rs.to_value(rsun), z=zs.to_value(rsun)),
     )
 

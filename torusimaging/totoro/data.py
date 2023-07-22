@@ -1,8 +1,9 @@
 import pathlib
+
 import astropy.table as at
 import astropy.units as u
-from matplotlib.path import Path
 import numpy as np
+from matplotlib.path import Path
 from pyia import GaiaData
 
 
@@ -189,7 +190,7 @@ class APOGEEDataset(Dataset):
         }
         target_mask = np.ones(len(self.t), dtype=bool)
         for name, bits in mask_bits.items():
-            target_mask &= (self.t[name] & np.sum(2 ** bits)) == 0
+            target_mask &= (self.t[name] & np.sum(2**bits)) == 0
 
         return self.t[quality_mask & target_mask]
 
@@ -203,11 +204,7 @@ class APOGEEDataset(Dataset):
             return low_alpha_mask
 
         else:
-            return (
-                (~low_alpha_mask)
-                & (self.t["M_H"] > -1)
-                & (self.t["ALPHA_M"] > 0)
-            )
+            return (~low_alpha_mask) & (self.t["M_H"] > -1) & (self.t["ALPHA_M"] > 0)
 
 
 class GALAHDataset(Dataset):

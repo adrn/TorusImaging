@@ -1,13 +1,13 @@
 import astropy.units as u
+import gala.dynamics as gd
+import gala.integrate as gi
 import numpy as np
 from scipy.optimize import minimize
-import gala.integrate as gi
-import gala.dynamics as gd
 
-from .potentials import potentials, galpy_potentials
-from .config import vcirc
 from .actions_o2gf import get_o2gf_aaf
 from .actions_staeckel import get_staeckel_aaf
+from .config import vcirc
+from .potentials import galpy_potentials, potentials
 
 
 def _same_actions_objfunc_staeckel(p, pos, vy, potential_name, match_actions):
@@ -22,8 +22,7 @@ def _same_actions_objfunc_staeckel(p, pos, vy, potential_name, match_actions):
 
     _unit = (u.km / u.s * u.kpc) ** 2
     val = (
-        (actions[0] - match_actions[0]) ** 2
-        + (actions[2] - match_actions[2]) ** 2
+        (actions[0] - match_actions[0]) ** 2 + (actions[2] - match_actions[2]) ** 2
     ).to_value(_unit)
 
     return val
@@ -37,8 +36,7 @@ def _same_actions_objfunc_sanders(p, pos, vy, potential_name, match_actions):
 
     _unit = (u.km / u.s * u.kpc) ** 2
     val = (
-        (actions[0] - match_actions[0]) ** 2
-        + (actions[2] - match_actions[2]) ** 2
+        (actions[0] - match_actions[0]) ** 2 + (actions[2] - match_actions[2]) ** 2
     ).to_value(_unit)
 
     return val
@@ -67,9 +65,7 @@ def get_w0s_with_same_actions(fiducial_w0, vy=None, staeckel=False):
             )
         else:
             fiducial_actions.append(
-                get_o2gf_aaf(potentials["1.0"], fiducial_w0[n], N_max=8)[
-                    "actions"
-                ]
+                get_o2gf_aaf(potentials["1.0"], fiducial_w0[n], N_max=8)["actions"]
             )
 
     fiducial_actions = u.Quantity(fiducial_actions).to(u.km / u.s * u.kpc)
@@ -99,17 +95,12 @@ def get_w0s_with_same_actions(fiducial_w0, vy=None, staeckel=False):
             )
 
             if res.fun > 1e-3:
-                print(
-                    f"{name}, {n}: func val = {res.fun} -- "
-                    "Failed to converge"
-                )
+                print(f"{name}, {n}: func val = {res.fun} -- " "Failed to converge")
 
             w0s[name].append(
                 gd.PhaseSpacePosition(
                     pos=fiducial_w0.pos[n],
-                    vel=[res.x[0], vy.to_value(u.km / u.s), res.x[1]]
-                    * u.km
-                    / u.s,
+                    vel=[res.x[0], vy.to_value(u.km / u.s), res.x[1]] * u.km / u.s,
                 )
             )
 

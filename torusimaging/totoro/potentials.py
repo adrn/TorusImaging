@@ -1,8 +1,8 @@
-from astropy.constants import G
 import astropy.units as u
-import numpy as np
-from scipy.optimize import minimize
 import gala.potential as gp
+import numpy as np
+from astropy.constants import G
+from scipy.optimize import minimize
 
 from .config import fiducial_mdisk, rsun, vcirc
 
@@ -31,34 +31,30 @@ def get_mw_potential(mdisk):
 
 
 def get_equivalent_galpy(potential):
-    from galpy.potential import (
-        MiyamotoNagaiPotential as BovyMiyamotoNagaiPotential,
-        HernquistPotential as BovyHernquistPotential,
-        NFWPotential as BovyNFWPotential,
-    )
+    from galpy.potential import HernquistPotential as BovyHernquistPotential
+    from galpy.potential import MiyamotoNagaiPotential as BovyMiyamotoNagaiPotential
+    from galpy.potential import NFWPotential as BovyNFWPotential
 
     ro = rsun
     vo = vcirc
 
     bovy_pot = {}
 
-    amp = (G * potential["disk"].parameters["m"]).to_value(vo ** 2 * ro)
+    amp = (G * potential["disk"].parameters["m"]).to_value(vo**2 * ro)
     a = potential["disk"].parameters["a"].to_value(ro)
     b = potential["disk"].parameters["b"].to_value(ro)
-    bovy_pot["disk"] = BovyMiyamotoNagaiPotential(
-        amp=amp, a=a, b=b, ro=ro, vo=vo
-    )
+    bovy_pot["disk"] = BovyMiyamotoNagaiPotential(amp=amp, a=a, b=b, ro=ro, vo=vo)
 
-    amp = (G * potential["bulge"].parameters["m"]).to_value(vo ** 2 * ro) * 2
+    amp = (G * potential["bulge"].parameters["m"]).to_value(vo**2 * ro) * 2
     c = potential["bulge"].parameters["c"].to_value(ro)
     bovy_pot["bulge"] = BovyHernquistPotential(amp=amp, a=c, ro=ro, vo=vo)
 
-    amp = (G * potential["nucleus"].parameters["m"]).to_value(vo ** 2 * ro) * 2
+    amp = (G * potential["nucleus"].parameters["m"]).to_value(vo**2 * ro) * 2
     c = potential["nucleus"].parameters["c"].to_value(ro)
     bovy_pot["nucleus"] = BovyHernquistPotential(amp=amp, a=c, ro=ro, vo=vo)
 
     _m = potential["halo"].parameters["m"]
-    amp = (G * _m).to_value(vo ** 2 * ro)
+    amp = (G * _m).to_value(vo**2 * ro)
     rs = potential["halo"].parameters["r_s"].to_value(ro)
     bovy_pot["halo"] = BovyNFWPotential(amp=amp, a=rs, ro=ro, vo=vo)
 

@@ -1,6 +1,6 @@
 # Standard library
-from collections import defaultdict
 import pickle
+from collections import defaultdict
 
 # Third-party
 import astropy.coordinates as coord
@@ -88,7 +88,7 @@ class AbundanceAnomalyMaschine:
         y = elem[idx[:, 1:]]
 
         # The fix for steep gradients: see Appendix of Price-Whelan et al. 2021
-        w = np.sum(x ** 2, axis=1)[:, None] - x * np.sum(x, axis=1)[:, None]
+        w = np.sum(x**2, axis=1)[:, None] - x * np.sum(x, axis=1)[:, None]
         # TODO: this line might be wrong!! Weighting by inverse-variance as well to
         # account for the element abundance uncertainties
         # w = w * 1 / elem_err[:, None] ** 2
@@ -97,7 +97,7 @@ class AbundanceAnomalyMaschine:
         mean_vars = 0.0
 
         d_elem = np.asarray(elem - means)
-        d_elem_errs = np.sqrt(np.asarray(elem_err ** 2 + mean_vars))
+        d_elem_errs = np.sqrt(np.asarray(elem_err**2 + mean_vars))
 
         return d_elem, d_elem_errs
 
@@ -123,7 +123,7 @@ class AbundanceAnomalyMaschine:
         y, yerr = self.get_mean_abundance_anomaly(elem, elem_err)
 
         M = self.get_M(angle.to_value(u.radian))
-        Cinv_diag = 1 / yerr ** 2
+        Cinv_diag = 1 / yerr**2
         MT_Cinv = M.T * Cinv_diag[None]
         MT_Cinv_M = MT_Cinv @ M
         coeffs = np.linalg.solve(MT_Cinv_M, MT_Cinv @ y)
@@ -149,7 +149,7 @@ class AbundanceAnomalyMaschine:
         step = coord.Angle(theta_z_step).to_value(u.rad)
         angz_bins = np.arange(0, 2 * np.pi + step, step)
         d_elem, d_elem_errs = self.get_mean_abundance_anomaly(elem, elem_err)
-        d_elem_ivar = 1 / d_elem_errs ** 2
+        d_elem_ivar = 1 / d_elem_errs**2
 
         # TODO: somehow incorporate intrinsic spread in d_elem here (in PW21
         # eyeballed to be ~0.04)

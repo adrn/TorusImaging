@@ -1,7 +1,4 @@
-import pathlib
-import astropy.coordinates as coord
 import astropy.units as u
-import numpy as np
 
 # Eilers et al. 2019:
 vcirc = 229.0 * u.km / u.s
