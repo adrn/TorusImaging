@@ -1,6 +1,6 @@
 try:
-    from empaf.version import __version__
+    from torusimaging.version import __version__
 except ImportError:
     __version__ = ""
 
-from empaf.model import *  # noqa
+from torusimaging.model import *  # noqa
