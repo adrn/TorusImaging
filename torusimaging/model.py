@@ -14,8 +14,8 @@ from jax.scipy.special import gammaln
 from jaxopt import Bisection
 from scipy.stats import binned_statistic, binned_statistic_2d
 
-from empaf.jax_helpers import simpson
-from empaf.model_helpers import custom_tanh_func_alt
+from torusimaging.jax_helpers import simpson
+from torusimaging.model_helpers import custom_tanh_func_alt
 
 __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 
@@ -49,7 +49,7 @@ class OrbitModelBase:
             `jax.jit()`. The first argument of each of these functions should be the raw
             elliptical radius :math:`r_z'` or ``rz_prime``. If not specified, default
             monotonic functions will be used:
-            `empaf.model_helpers.custom_tanh_func_alt()`.
+            `torusimaging.model_helpers.custom_tanh_func_alt()`.
         unit_sys : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
             from Gala: (kpc, Myr, Msun, radian).

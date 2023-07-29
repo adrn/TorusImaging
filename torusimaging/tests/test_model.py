@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from empaf.model import DensityOrbitModel, _e_param_names
+from torusimaging.model import DensityOrbitModel, _e_param_names
 
 models = []
 states = []
@@ -56,7 +56,6 @@ def test_density_model_validate(model, valid_state):
 
 @pytest.mark.parametrize(["model", "valid_state"], zip(models, states))
 def test_density_model_get_params(model, valid_state):
-
     model = model.copy()
     model.state = valid_state
     model.get_params()
