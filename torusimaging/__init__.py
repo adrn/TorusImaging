@@ -4,3 +4,5 @@ except ImportError:
     __version__ = ""
 
 from torusimaging.model import *  # noqa
+
+from . import plot  # noqa
