@@ -1,4 +1,3 @@
-import abc
 from functools import partial
 from warnings import warn
 
@@ -319,9 +318,10 @@ class OrbitModelBase:
 
         return res.reshape(in_shape) * self.unit_sys["acceleration"]
 
-    @abc.abstractmethod
-    def objective(self):
-        pass
+    @partial(jax.jit, static_argnames=["self"])
+    def objective(self, params, z, vz, H, *args, **kwargs):
+        f = getattr(self, self._objective_func)
+        return -(f(params, z, vz, H, *args, **kwargs)) / z.size
 
     def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
         """
@@ -478,6 +478,8 @@ class OrbitModelBase:
 
 
 class DensityOrbitModel(OrbitModelBase):
+    _objective_func = "ln_poisson_likelihood"
+
     def __init__(self, ln_dens_func, e_funcs=None, unit_sys=galactic):
         """
         {intro}
@@ -636,12 +638,10 @@ class DensityOrbitModel(OrbitModelBase):
         # gammaln(x+1) = log(factorial(x))
         return (H * ln_Lambda - jnp.exp(ln_Lambda) - gammaln(H + 1)).sum()
 
-    @partial(jax.jit, static_argnames=["self"])
-    def objective(self, params, z, vz, H):
-        return -(self.ln_poisson_likelihood(params, z, vz, H)) / H.size
-
 
 class LabelOrbitModel(OrbitModelBase):
+    _objective_func = "ln_label_likelihood"
+
     def __init__(self, label_func, e_funcs=None, unit_sys=galactic):
         """
         {intro}
@@ -789,7 +789,3 @@ class LabelOrbitModel(OrbitModelBase):
 
         # log of a gaussian
         return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
-
-    @partial(jax.jit, static_argnames=["self"])
-    def objective(self, params, z, vz, label, label_err):
-        return -(self.ln_label_likelihood(params, z, vz, label, label_err)) / label.size
