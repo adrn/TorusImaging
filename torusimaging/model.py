@@ -329,7 +329,7 @@ class OrbitModelBase:
     def objective(self, params, z, vz, H, *args, **kwargs):
         f = getattr(self, self._objective_func)
         f_val = f(params, z, vz, H, *args, **kwargs)
-        return -(f_val + self.regularization_func(params)) / z.size
+        return -(f_val - self.regularization_func(params)) / z.size
 
     def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
         """
