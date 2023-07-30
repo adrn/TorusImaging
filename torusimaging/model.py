@@ -20,7 +20,7 @@ __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 
 
 class OrbitModelBase:
-    def __init__(self, e_funcs=None, unit_sys=galactic):
+    def __init__(self, e_funcs=None, regularization_func=None, unit_sys=galactic):
         r"""
         Notation:
         - :math:`\Omega_0` or ``Omega_0``: A scale frequency used to compute the
@@ -49,6 +49,9 @@ class OrbitModelBase:
             elliptical radius :math:`r_z'` or ``rz_prime``. If not specified, default
             monotonic functions will be used:
             `torusimaging.model_helpers.custom_tanh_func_alt()`.
+        regularization_func : callable (optional)
+            An optional function that computes a regularization term to add to the
+            objective function when optimizing.
         unit_sys : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
             from Gala: (kpc, Myr, Msun, radian).
@@ -67,6 +70,10 @@ class OrbitModelBase:
 
         # Unit system:
         self.unit_sys = UnitSystem(unit_sys)
+
+        if regularization_func is None:
+            regularization_func = lambda *_, **__: 0.0  # noqa
+        self.regularization_func = regularization_func
 
         # TODO: decide if we will keep parameter validation. For JIT/JAX maybe not?
         # Fill a list of parameter names - used later to validate input `params`
@@ -321,7 +328,8 @@ class OrbitModelBase:
     @partial(jax.jit, static_argnames=["self"])
     def objective(self, params, z, vz, H, *args, **kwargs):
         f = getattr(self, self._objective_func)
-        return -(f(params, z, vz, H, *args, **kwargs)) / z.size
+        f_val = f(params, z, vz, H, *args, **kwargs)
+        return -(f_val + self.regularization_func(params)) / z.size
 
     def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
         """
@@ -480,7 +488,9 @@ class OrbitModelBase:
 class DensityOrbitModel(OrbitModelBase):
     _objective_func = "ln_poisson_likelihood"
 
-    def __init__(self, ln_dens_func, e_funcs=None, unit_sys=galactic):
+    def __init__(
+        self, ln_dens_func, e_funcs=None, regularization_func=None, unit_sys=galactic
+    ):
         """
         {intro}
 
@@ -490,7 +500,9 @@ class DensityOrbitModel(OrbitModelBase):
             TODO
         {params}
         """
-        super().__init__(e_funcs=e_funcs, unit_sys=unit_sys)
+        super().__init__(
+            e_funcs=e_funcs, regularization_func=regularization_func, unit_sys=unit_sys
+        )
         self.ln_dens_func = jax.jit(ln_dens_func)
 
     __init__.__doc__ = __init__.__doc__.format(
@@ -642,7 +654,9 @@ class DensityOrbitModel(OrbitModelBase):
 class LabelOrbitModel(OrbitModelBase):
     _objective_func = "ln_label_likelihood"
 
-    def __init__(self, label_func, e_funcs=None, unit_sys=galactic):
+    def __init__(
+        self, label_func, e_funcs=None, regularization_func=None, unit_sys=galactic
+    ):
         """
         {intro}
 
@@ -652,7 +666,9 @@ class LabelOrbitModel(OrbitModelBase):
             TODO
         {params}
         """
-        super().__init__(e_funcs=e_funcs, unit_sys=unit_sys)
+        super().__init__(
+            e_funcs=e_funcs, regularization_func=regularization_func, unit_sys=unit_sys
+        )
         self.label_func = jax.jit(label_func)
 
     __init__.__doc__ = __init__.__doc__.format(
