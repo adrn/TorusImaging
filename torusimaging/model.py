@@ -449,11 +449,11 @@ class OrbitModelBase:
         # This condition has to be met such that d(r_z)/d(r_z') > 0 at all theta_z':
         return np.all(checks > -1), checks
 
-    def error_propagate_uncertainty(self, params, data):
+    def get_crlb(self, params, data):
         """
         EXPERIMENTAL
 
-        Propagate uncertainty using the Fisher information matrix.
+        Returns the Cramer-Rao lower bound matrix (inverse of the Fisher information)
         """
         import numpy as np
 
@@ -475,12 +475,47 @@ class OrbitModelBase:
         fisher = jax.hessian(wrapper)(flat_params, data, sizes)
         fisher_inv = np.linalg.inv(fisher)
 
+        return fisher_inv
+
+    def error_propagate_uncertainty(self, params, data):
+        """
+        EXPERIMENTAL
+
+        Propagate uncertainty using the Fisher information matrix.
+        """
+        import numpy as np
+
+        treedef = jax.tree_util.tree_structure(params)
+        flattened = jax.tree_util.tree_flatten(params)[0]
+        sizes = [x.size for x in flattened]
+
+        fisher_inv = self.get_crlb(params, data)
         flat_param_uncs = np.sqrt(np.diag(fisher_inv))
 
         arrs = []
         i = 0
         for size in sizes:
             arrs.append(jnp.array(flat_param_uncs[i : i + size]))
+            i += size
+        return jax.tree_util.tree_unflatten(treedef, arrs)
+
+    def get_crlb_error_samples(self, params, data, size=1, seed=None):
+        import numpy as np
+
+        treedef = jax.tree_util.tree_structure(params)
+        flattened = jax.tree_util.tree_flatten(params)[0]
+        sizes = [x.size for x in flattened]
+        flat_params = np.concatenate([np.atleast_1d(x) for x in flattened])
+
+        crlb = self.get_crlb(params, data)
+
+        rng = np.random.default_rng(seed=seed)
+        samples = rng.multivariate_normal(flat_params, crlb, size=size)
+
+        arrs = []
+        i = 0
+        for size in sizes:
+            arrs.append(jnp.array(samples[..., i : i + size]))
             i += size
         return jax.tree_util.tree_unflatten(treedef, arrs)
 
