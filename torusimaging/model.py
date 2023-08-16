@@ -466,7 +466,7 @@ class OrbitModelBase:
                 arrs.append(jnp.array(flat_params[i : i + size]))
                 i += size
             params = jax.tree_util.tree_unflatten(treedef, arrs)
-            return -2 * self.ln_poisson_likelihood(params, **data)
+            return -2 * getattr(self, self._objective_func)(params, **data)
 
         flattened = jax.tree_util.tree_flatten(params)[0]
         sizes = [x.size for x in flattened]
