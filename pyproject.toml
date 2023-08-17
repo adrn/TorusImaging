@@ -37,6 +37,9 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["torusimaging", "torusimaging.*"]
 
+[tool.setuptools.package-data]
+"torusimaging.tests" = ["test-data.npz"]
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]
