@@ -11,7 +11,7 @@ from astropy.stats import median_absolute_deviation as MAD
 from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
 from jaxopt import Bisection
-from scipy.stats import binned_statistic, binned_statistic_2d
+from scipy.stats import binned_statistic
 
 from torusimaging.jax_helpers import simpson
 from torusimaging.model_helpers import custom_tanh_func_alt
@@ -74,10 +74,6 @@ class OrbitModelBase:
         if regularization_func is None:
             regularization_func = lambda *_, **__: 0.0  # noqa
         self.regularization_func = regularization_func
-
-        # TODO: decide if we will keep parameter validation. For JIT/JAX maybe not?
-        # Fill a list of parameter names - used later to validate input `params`
-        # self._param_names = ["ln_Omega", "e_params", "z0", "vz0"]
 
     def _get_default_e_params(self):
         pars0 = {}
@@ -644,29 +640,6 @@ class DensityOrbitModel(OrbitModelBase):
 
         return pars0
 
-    @classmethod
-    def get_data_im(cls, z, vz, bins):
-        """
-        Convert the raw data (stellar positions and velocities z, vz) into a binned 2D
-        histogram / image of number counts.
-
-        Parameters
-        ----------
-        z : array-like
-        vz : array-like
-        bins : dict
-        """
-        data_H, xe, ye = jnp.histogram2d(
-            vz,
-            z,
-            bins=(bins["vz"], bins["z"]),
-        )
-        xc = 0.5 * (xe[:-1] + xe[1:])
-        yc = 0.5 * (ye[:-1] + ye[1:])
-        xc, yc = jnp.meshgrid(xc, yc)
-
-        return {"z": jnp.array(yc), "vz": jnp.array(xc), "H": jnp.array(data_H.T)}
-
     @partial(jax.jit, static_argnames=["self"])
     def get_ln_dens(self, rz, params):
         return self.ln_dens_func(rz, **params["ln_dens_params"])
@@ -788,39 +761,6 @@ class LabelOrbitModel(OrbitModelBase):
         pars0.update(self._get_default_e_params())
 
         return pars0
-
-    @classmethod
-    def get_data_im(cls, z, vz, label, bins, **binned_statistic_kwargs):
-        import numpy as np
-
-        stat = binned_statistic_2d(
-            vz,
-            z,
-            label,
-            bins=(bins["vz"], bins["z"]),
-            **binned_statistic_kwargs,
-        )
-        xc = 0.5 * (stat.x_edge[:-1] + stat.x_edge[1:])
-        yc = 0.5 * (stat.y_edge[:-1] + stat.y_edge[1:])
-        xc, yc = jnp.meshgrid(xc, yc)
-
-        # Compute label statistic error
-        err_floor = 0.1
-        stat_err = binned_statistic_2d(
-            vz,
-            z,
-            label,
-            bins=(bins["vz"], bins["z"]),
-            statistic=lambda x: np.sqrt((1.5 * MAD(x)) ** 2 + err_floor**2)
-            / np.sqrt(len(x)),
-        )
-
-        return {
-            "z": jnp.array(yc),
-            "vz": jnp.array(xc),
-            "label": jnp.array(stat.statistic.T),
-            "label_err": jnp.array(stat_err.statistic.T),
-        }
 
     @partial(jax.jit, static_argnames=["self"])
     def get_label(self, rz, params):

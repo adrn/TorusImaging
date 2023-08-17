@@ -101,3 +101,13 @@ class OTIData:
             "vel": yc * self.units["length"] / self.units["time"],
             label_name: stat.statistic.T,
         }
+
+    # TODO: add a way to get a binned label error bars
+    # stat_err = binned_statistic_2d(
+    #         vz,
+    #         z,
+    #         label,
+    #         bins=(bins["vz"], bins["z"]),
+    #         statistic=lambda x: np.sqrt((1.5 * MAD(x)) ** 2 + err_floor**2)
+    #         / np.sqrt(len(x)),
+    #     )
