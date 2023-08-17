@@ -33,6 +33,10 @@ Repository = "https://github.com/adrn/TorusImaging.git"
 requires = ["setuptools>=42", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["torusimaging", "torusimaging.*"]
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]
