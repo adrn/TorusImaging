@@ -326,9 +326,9 @@ class OrbitModelBase:
         return res.reshape(in_shape) * self.unit_sys["acceleration"]
 
     @partial(jax.jit, static_argnames=["self"])
-    def objective(self, params, z, vz, H, *args, **kwargs):
+    def objective(self, params, z, vz, *args, **kwargs):
         f = getattr(self, self._objective_func)
-        f_val = f(params, z, vz, H, *args, **kwargs)
+        f_val = f(params, z, vz, *args, **kwargs)
         return -(f_val - self.regularization_func(params)) / z.size
 
     def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
