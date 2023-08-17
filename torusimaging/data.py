@@ -68,7 +68,7 @@ class OTIData:
             "counts": H.T,
         }
 
-    def get_binned_label(self, bins, label_name, **binned_statistic_kwargs):
+    def get_binned_label(self, bins, label_name=None, **binned_statistic_kwargs):
         """
         Parameters
         ----------
@@ -76,6 +76,9 @@ class OTIData:
             A specification of the bins. This can either be a tuple, where the order
             is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
         """
+        if label_name is None and len(self._label_names) == 1:
+            label_name = self._label_names[0]
+
         if label_name not in self.labels:
             raise KeyError(
                 f"Invalid label name '{label_name}' – expected one of "
@@ -96,5 +99,5 @@ class OTIData:
         return {
             "pos": xc * self.units["length"],
             "vel": yc * self.units["length"] / self.units["time"],
-            "label": stat.statistic.T,
+            label_name: stat.statistic.T,
         }
