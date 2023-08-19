@@ -14,41 +14,41 @@ from jaxopt import Bisection
 from scipy.stats import binned_statistic
 
 from torusimaging.jax_helpers import simpson
-from torusimaging.model_helpers import custom_tanh_func_alt
 
 __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 
 
+# TODO: define classmethods to create with standard splines, pass in number of knots
 class OrbitModelBase:
-    def __init__(self, e_funcs=None, regularization_func=None, unit_sys=galactic):
+    def __init__(self, e_funcs, regularization_func=None, unit_sys=galactic):
         r"""
         Notation:
-        - :math:`\Omega_0` or ``Omega_0``: A scale frequency used to compute the
-          elliptical radius ``rz_prime``. This can be interpreted as the asymptotic
-          orbital frequency at :math:`J_z=0`.
-        - :math:`r_z'` or ``rz_prime``: The "raw" elliptical radius :math:`\sqrt{z^2\,
-          \Omega_0 + v_z^2 \, \Omega_0^{-1}}`.
-        - :math:`\theta'` or ``theta_prime``: The "raw" z angle defined as :math:`\tan
-          {\theta'} = \frac{z}{v_z}\,\Omega_0`.
-        - :math:`r_z` or ``rz``: The distorted elliptical radius :math:`r_z = r_z' \,
-          f(r_z', \theta_z')`, which is close to :math:`\sqrt{J_z}` and so we call it
-          the "proxy action" below. :math:`f(\cdot)` is the distortion function defined
-          next.
-        - :math:`f(r_z', \theta_z')`: The distortion function is a Fourier expansion,
-          defined as: :math:`f(r_z', \theta_z') = 1+\sum_m e_m(r_z')\,\cos(m\,\theta')`
-        - :math:`\theta_z` or ``theta_z``: The vertical angle.
+        - :math:`\Omega_0` or ``Omega0``: A scale frequency used to compute the
+          elliptical radius ``rz_prime``. This is the asymptotic orbital frequency at
+          zero action.
+        - :math:`r_e` or ``re``: The elliptical radius
+          :math:`r_e = \sqrt{z^2\, \Omega_0 + v_z^2 \, \Omega_0^{-1}}`.
+        - :math:`\theta_e` or ``thetae``: The elliptical z angle defined as
+          :math:`\tan{\theta_e} = \frac{z}{v_z}\,\Omega_0`.
+        - :math:`r` or ``r``: The distorted elliptical radius
+          :math:`r = r_e \, f(r_e, \theta_e)`, which is close  to :math:`\sqrt{J}` (the
+          action) and so we sometimes call it the "proxy action" below. :math:`f(\cdot)`
+          is the distortion function defined below.
+        - :math:`f(r_e, \theta_e)`: The distortion function is a
+          Fourier expansion, defined as: :math:`f(r_e, \theta_e) = 1 +
+          \sum_m e_m(r_e)\,\cos(m\,\theta_e)`
+        - :math:`J` or ``theta_e``: The vertical angle.
+        - :math:`\theta` or ``theta_e``: The vertical angle.
 
         Parameters
         ----------
-        e_funcs : dict (optional)
+        e_funcs : dict
             A dictionary that provides functions that specify the dependence of the
-            Fourier distortion coefficients :math:`e_m(r_z')`. Keys should be the
+            Fourier distortion coefficients :math:`e_m(r_e)`. Keys should be the
             (integer) "m" order of the distortion term (for the distortion function),
             and values should be Python callable objects that can be passed to
-            `jax.jit()`. The first argument of each of these functions should be the raw
-            elliptical radius :math:`r_z'` or ``rz_prime``. If not specified, default
-            monotonic functions will be used:
-            `torusimaging.model_helpers.custom_tanh_func_alt()`.
+            `jax.jit()`. The first argument of each of these functions should be the
+            elliptical radius :math:`r_e` or ``re``.
         regularization_func : callable (optional)
             An optional function that computes a regularization term to add to the
             objective function when optimizing.
@@ -57,16 +57,7 @@ class OrbitModelBase:
             from Gala: (kpc, Myr, Msun, radian).
 
         """
-        if e_funcs is None:
-            # Default functions:
-            self.e_funcs = {
-                2: lambda *a, **k: custom_tanh_func_alt(*a, f0=0.0, **k),
-                4: lambda *a, **k: custom_tanh_func_alt(*a, f0=0.0, **k),
-            }
-            self._default_e_funcs = True
-        else:
-            self.e_funcs = {int(m): jax.jit(e_func) for m, e_func in e_funcs.items()}
-            self._default_e_funcs = False
+        self.e_funcs = {int(m): jax.jit(e_func) for m, e_func in e_funcs.items()}
 
         # Unit system:
         self.unit_sys = UnitSystem(unit_sys)
@@ -75,29 +66,8 @@ class OrbitModelBase:
             regularization_func = lambda *_, **__: 0.0  # noqa
         self.regularization_func = regularization_func
 
-    def _get_default_e_params(self):
-        pars0 = {}
-
-        # If default e_funcs, we can specify some defaults:
-        if self._default_e_funcs:
-            pars0["e_params"] = {2: {}, 4: {}}
-            pars0["e_params"][2]["f1"] = 0.1
-            pars0["e_params"][2]["alpha"] = 0.33
-            pars0["e_params"][2]["x0"] = 3.0
-
-            pars0["e_params"][4]["f1"] = -0.02
-            pars0["e_params"][4]["alpha"] = 0.45
-            pars0["e_params"][4]["x0"] = 3.0
-        else:
-            warn(
-                "With custom e_funcs, you must set your own initial parameters. Use "
-                "the dictionary returned by this function and add initial guesses "
-                "for all parameters expected by the e_funcs.",
-                RuntimeWarning,
-            )
-
-        return pars0
-
+    # TODO: here - rename stuff below. Take in OTIData instance? No - "pos, vel". z0 ->
+    # pos0, vz0 -> vel0
     @partial(jax.jit, static_argnames=["self"])
     def z_vz_to_rz_theta_prime(self, z, vz, params):
         r"""
@@ -110,8 +80,8 @@ class OrbitModelBase:
         vz : numeric, array-like
         params : dict
         """
-        x = (vz - params["vz0"]) / jnp.sqrt(jnp.exp(params["ln_Omega"]))
-        y = (z - params["z0"]) * jnp.sqrt(jnp.exp(params["ln_Omega"]))
+        x = (vz - params["vz0"]) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+        y = (z - params["z0"]) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
         rz_prime = jnp.sqrt(x**2 + y**2)
         th_prime = jnp.arctan2(y, x)
