@@ -5,4 +5,4 @@ except ImportError:
 
 from torusimaging.model import *  # noqa
 
-from . import data, plot  # noqa
+from . import data, model_helpers, plot  # noqa

@@ -5,7 +5,7 @@ from astropy.convolution import Gaussian2DKernel, convolve
 
 
 def plot_data_models_residual(
-    data_H,
+    binned_data,
     model,
     params_init,
     params_fit,
@@ -19,9 +19,7 @@ def plot_data_models_residual(
 
     Parameters
     ----------
-    data_H : dict
-        Containing arrays in keys 'z', 'vz', 'H' for the bins in z, vz and number counts
-        in H.
+    binned_data : dict
     model0 : `VerticalOrbitModel`
         The model at parameter initialization.
     model : `VerticalOrbitModel`
@@ -36,35 +34,38 @@ def plot_data_models_residual(
     if usys is None:
         usys = model.unit_sys
 
+    bd = {
+        k: v.decompose(usys).value if hasattr(v, "unit") else v
+        for k, v in binned_data.items()
+    }
+
     vlim = dict(norm=mpl.colors.LogNorm(vmin=1e-1, vmax=3e4), shading="auto")
 
     fig, axes = plt.subplots(
         1, 4, figsize=(22, 5.4), sharex=True, sharey=True, constrained_layout=True
     )
 
-    cs = axes[0].pcolormesh(data_H["vz"], data_H["z"], data_H["H"], **vlim)
+    cs = axes[0].pcolormesh(bd["vel"], bd["pos"], bd["counts"], **vlim)
 
     # Initial model:
     model0_H = np.exp(
-        model.ln_density(z=data_H["z"], vz=data_H["vz"], params=params_init)
+        model.ln_density(pos=bd["pos"], vel=bd["vel"], params=params_init)
     )
-    cs = axes[1].pcolormesh(data_H["vz"], data_H["z"], model0_H, **vlim)
+    cs = axes[1].pcolormesh(bd["vel"], bd["pos"], model0_H, **vlim)
 
     # Fitted model:
-    model_H = np.exp(
-        model.ln_density(z=data_H["z"], vz=data_H["vz"], params=params_fit)
-    )
-    cs = axes[2].pcolormesh(data_H["vz"], data_H["z"], model_H, **vlim)
+    model_H = np.exp(model.ln_density(pos=bd["pos"], vel=bd["vel"], params=params_fit))
+    cs = axes[2].pcolormesh(bd["vel"], bd["pos"], model_H, **vlim)
     fig.colorbar(cs, ax=axes[:3], aspect=40)
 
     # Residual:
-    resid = np.array((data_H["H"] - model_H) / model_H)
-    resid[data_H["H"] < 5] = np.nan
+    resid = np.array((bd["counts"] - model_H) / model_H)
+    resid[bd["counts"] < 5] = np.nan
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
     cs = axes[3].pcolormesh(
-        data_H["vz"],
-        data_H["z"],
+        bd["vel"],
+        bd["pos"],
         resid,
         vmin=-vlim_residual,
         vmax=vlim_residual,

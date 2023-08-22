@@ -22,23 +22,25 @@ __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 class OrbitModelBase:
     def __init__(self, e_funcs, regularization_func=None, unit_sys=galactic):
         r"""
+        This inherently assumes that you are working in a 1D phase space with position
+        coordinate ``x`` and velocity coordinate ``v``.
+
         Notation:
         - :math:`\Omega_0` or ``Omega0``: A scale frequency used to compute the
-          elliptical radius ``rz_prime``. This is the asymptotic orbital frequency at
-          zero action.
-        - :math:`r_e` or ``re``: The elliptical radius
-          :math:`r_e = \sqrt{z^2\, \Omega_0 + v_z^2 \, \Omega_0^{-1}}`.
-        - :math:`\theta_e` or ``thetae``: The elliptical z angle defined as
-          :math:`\tan{\theta_e} = \frac{z}{v_z}\,\Omega_0`.
+          elliptical radius ``r_e``. This is the asymptotic orbital frequency at zero
+          action.
+        - :math:`r_e` or ``r_e``: The elliptical radius
+          :math:`r_e = \sqrt{x^2\, \Omega_0 + v^2 \, \Omega_0^{-1}}`.
+        - :math:`\theta_e` or ``theta_e``: The elliptical angle defined as
+          :math:`\tan{\theta_e} = \frac{x}{v}\,\Omega_0`.
         - :math:`r` or ``r``: The distorted elliptical radius
           :math:`r = r_e \, f(r_e, \theta_e)`, which is close  to :math:`\sqrt{J}` (the
           action) and so we sometimes call it the "proxy action" below. :math:`f(\cdot)`
           is the distortion function defined below.
-        - :math:`f(r_e, \theta_e)`: The distortion function is a
-          Fourier expansion, defined as: :math:`f(r_e, \theta_e) = 1 +
-          \sum_m e_m(r_e)\,\cos(m\,\theta_e)`
-        - :math:`J` or ``theta_e``: The vertical angle.
-        - :math:`\theta` or ``theta_e``: The vertical angle.
+        - :math:`f(r_e, \theta_e)`: The distortion function is a Fourier expansion, \
+          defined as: :math:`f(r_e, \theta_e) = 1 + \sum_m e_m(r_e)\,\cos(m\,\theta_e)`
+        - :math:`J` or ``J``: The action.
+        - :math:`\theta` or ``theta``: The conjugate angle.
 
         Parameters
         ----------
@@ -66,66 +68,64 @@ class OrbitModelBase:
             regularization_func = lambda *_, **__: 0.0  # noqa
         self.regularization_func = regularization_func
 
-    # TODO: here - rename stuff below. Take in OTIData instance? No - "pos, vel". z0 ->
-    # pos0, vz0 -> vel0
     @partial(jax.jit, static_argnames=["self"])
-    def z_vz_to_rz_theta_prime(self, z, vz, params):
+    def get_elliptical_coords(self, pos, vel, params):
         r"""
-        Compute the raw elliptical radius :math:`r_z'` (``rz_prime``) and the apparent
-        phase :math:`\theta_z'` (``theta_prime``)
+        Compute the raw elliptical radius :math:`r_e` (``r_e``) and angle
+        :math:`\theta_e'` (``theta_e``)
 
         Parameters
         ----------
-        z : numeric, array-like
-        vz : numeric, array-like
+        pos : numeric, array-like
+        vel : numeric, array-like
         params : dict
         """
-        x = (vz - params["vz0"]) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
-        y = (z - params["z0"]) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+        x = (vel - params["vel0"]) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+        y = (pos - params["pos0"]) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
-        rz_prime = jnp.sqrt(x**2 + y**2)
-        th_prime = jnp.arctan2(y, x)
+        r_e = jnp.sqrt(x**2 + y**2)
+        t_e = jnp.arctan2(y, x)
 
-        return rz_prime, th_prime
+        return r_e, t_e
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_es(self, rz_prime, e_params):
+    def get_es(self, r_e, e_params):
         """
         Compute the Fourier m-order distortion coefficients
 
         Parameters
         ----------
-        rz_prime : numeric, array-like
+        r_e : numeric, array-like
         e_params : dict
         """
         es = {}
         for m, pars in e_params.items():
-            es[m] = self.e_funcs[m](rz_prime, **pars)
+            es[m] = self.e_funcs[m](r_e, **pars)
         return es
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_rz(self, rz_prime, theta_prime, e_params):
+    def get_r(self, r_e, theta_e, e_params):
         """
-        Compute the "proxy action" or distorted radius :math:`r_z`
+        Compute the distorted radius :math:`r`
 
         Parameters
         ----------
-        rz_prime : numeric, array-like
-        theta_prime : numeric, array-like
+        r_e : numeric, array-like
+        theta_e : numeric, array-like
         e_params : dict
         """
-        es = self.get_es(rz_prime, e_params)
-        return rz_prime * (
+        es = self.get_es(r_e, e_params)
+        return r_e * (
             1
             + jnp.sum(
-                jnp.array([e * jnp.cos(m * theta_prime) for m, e in es.items()]), axis=0
+                jnp.array([e * jnp.cos(m * theta_e) for m, e in es.items()]), axis=0
             )
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_thetaz(self, rz_prime, theta_prime, e_params):
+    def get_theta(self, r_e, theta_e, e_params):
         """
-        Compute the vertical phase angle
+        Compute the phase angle
 
         Parameters
         ----------
@@ -133,32 +133,33 @@ class OrbitModelBase:
         theta_prime : numeric, array-like
         e_params : dict
         """
-        es = self.get_es(rz_prime, e_params)
-        # TODO: why t.f. is the π/2 needed below??
-        return theta_prime - jnp.sum(
+        es = self.get_es(r_e, e_params)
+        # TODO: why is the π/2 needed below??
+        return theta_e - jnp.sum(
             jnp.array(
-                [m / (jnp.pi / 2) * e * jnp.sin(m * theta_prime) for m, e in es.items()]
+                [m / (jnp.pi / 2) * e * jnp.sin(m * theta_e) for m, e in es.items()]
             ),
             axis=0,
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_rz_prime(self, rz, theta_prime, e_params):
+    def get_r_e(self, r, theta_e, e_params):
         """
-        Compute the raw radius :math:`r_z'` by inverting the distortion transformation
+        Compute the elliptical radius :math:`r_e` by inverting the distortion
+        transformation from :math:`r`
 
         Parameters
         ----------
-        rz : numeric
-            The "proxy action" or distorted radius.
-        theta_prime : numeric
-            The raw "apparent" angle.
+        r : numeric
+            The distorted radius.
+        theta_e : numeric
+            The elliptical angle.
         e_params : dict
             Dictionary of parameter values for the distortion coefficient (e) functions.
         """
-        # TODO lots of numbers are hard-set below!
+        # TODO: lots of numbers are hard-set below!
         bisec = Bisection(
-            lambda x, rrz, tt_prime, ee_params: self.get_rz(x, tt_prime, ee_params)
+            lambda x, rrz, tt_prime, ee_params: self.get_r(x, tt_prime, ee_params)
             - rrz,
             lower=0.0,
             upper=1.0,
@@ -168,80 +169,86 @@ class OrbitModelBase:
             check_bracket=False,
             tol=1e-4,
         )
-        return bisec.run(rz, rrz=rz, tt_prime=theta_prime, ee_params=e_params).params
+        return bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_z(self, rz, theta_prime, params):
-        rzp = self.get_rz_prime(rz, theta_prime, params["e_params"])
-        return rzp * jnp.sin(theta_prime) / jnp.sqrt(jnp.exp(params["ln_Omega"]))
+    def get_pos(self, r, theta_e, params):
+        """
+        Compute the position given the distorted radius and elliptical angle
+        """
+        r_e = self.get_r_e(r, theta_e, params["e_params"])
+        return r_e * jnp.sin(theta_e) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_vz(self, rz, theta_prime, params):
-        rzp = self.get_rz_prime(rz, theta_prime, params["e_params"])
-        return rzp * jnp.cos(theta_prime) * jnp.sqrt(jnp.exp(params["ln_Omega"]))
+    def get_vel(self, r, theta_e, params):
+        """
+        Compute the velocity given the distorted radius and elliptical angle
+        """
+        rzp = self.get_r_e(r, theta_e, params["e_params"])
+        return rzp * jnp.cos(theta_e) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
     @partial(jax.jit, static_argnames=["self", "N_grid"])
-    def _get_Tz_Jz_thetaz(self, z, vz, params, N_grid):
-        rzp_, thp_ = self.z_vz_to_rz_theta_prime(z, vz, params)
-        rz = self.get_rz(rzp_, thp_, params["e_params"])
+    def _get_T_J_theta(self, pos, vel, params, N_grid):
+        re_, the_ = self.get_elliptical_coords(pos, vel, params)
+        r = self.get_r(re_, the_, params["e_params"])
 
-        dz_dthp_func = jax.vmap(
-            jax.grad(self.get_z, argnums=1), in_axes=[None, 0, None]
+        dpos_dthe_func = jax.vmap(
+            jax.grad(self.get_pos, argnums=1), in_axes=[None, 0, None]
         )
 
-        get_vz = jax.vmap(self.get_vz, in_axes=[None, 0, None])
+        get_vel = jax.vmap(self.get_vel, in_axes=[None, 0, None])
 
         # Grid of theta_prime to do the integral over:
-        thp_grid = jnp.linspace(0, jnp.pi / 2, N_grid)
-        vz_th = get_vz(rz, thp_grid, params)
-        dz_dthp = dz_dthp_func(rz, thp_grid, params)
+        the_grid = jnp.linspace(0, jnp.pi / 2, N_grid)
+        v_th = get_vel(r, the_grid, params)
+        dz_dthp = dpos_dthe_func(r, the_grid, params)
 
-        Tz = 4 * simpson(dz_dthp / vz_th, thp_grid)
-        Jz = 4 / (2 * jnp.pi) * simpson(dz_dthp * vz_th, thp_grid)
+        Tz = 4 * simpson(dz_dthp / v_th, the_grid)
+        Jz = 4 / (2 * jnp.pi) * simpson(dz_dthp * v_th, the_grid)
 
-        thp_partial = jnp.linspace(0, thp_, N_grid)
-        vz_th_partial = get_vz(rz, thp_partial, params)
-        dz_dthp_partial = dz_dthp_func(rz, thp_partial, params)
-        dt = simpson(dz_dthp_partial / vz_th_partial, thp_partial)
+        thp_partial = jnp.linspace(0, the_, N_grid)
+        v_th_partial = get_vel(r, thp_partial, params)
+        dpos_dthe_partial = dpos_dthe_func(r, thp_partial, params)
+        dt = simpson(dpos_dthe_partial / v_th_partial, thp_partial)
         thz = 2 * jnp.pi * dt / Tz
 
         return Tz, Jz, thz
 
-    _get_Tz_Jz_thetaz = jax.vmap(_get_Tz_Jz_thetaz, in_axes=[None, 0, 0, None, None])
+    _get_T_J_theta = jax.vmap(_get_T_J_theta, in_axes=[None, 0, 0, None, None])
 
     @u.quantity_input
-    def compute_action_angle(self, z: u.kpc, vz: u.km / u.s, params, N_grid=101):
+    def compute_action_angle(self, pos: u.kpc, vel: u.km / u.s, params, N_grid=32):
         """
         Compute the vertical period, action, and angle given input phase-space
         coordinates.
 
         Parameters
         ----------
-        z : `astropy.units.Quantity`
-        vz : `astropy.units.Quantity`
+        pos : `astropy.units.Quantity`
+        vel : `astropy.units.Quantity`
         params : dict
         N_grid : int (optional)
         """
-        z = z.decompose(self.unit_sys).value
-        vz = vz.decompose(self.unit_sys).value
-        Tz, Jz, thz = self._get_Tz_Jz_thetaz(z, vz, params, N_grid)
+        x = pos.decompose(self.unit_sys).value
+        v = vel.decompose(self.unit_sys).value
+        T, J, th = self._get_T_J_theta(x, v, params, N_grid)
 
         tbl = at.QTable()
-        tbl["T_z"] = Tz * self.unit_sys["time"]
-        tbl["Omega_z"] = 2 * jnp.pi * u.rad / tbl["T_z"]
-        tbl["J_z"] = Jz * self.unit_sys["length"] ** 2 / self.unit_sys["time"]
-        tbl["theta_z"] = thz * self.unit_sys["angle"]
+        tbl["T"] = T * self.unit_sys["time"]
+        tbl["Omega"] = 2 * jnp.pi * u.rad / tbl["T"]
+        tbl["J"] = J * self.unit_sys["length"] ** 2 / self.unit_sys["time"]
+        tbl["theta"] = th * self.unit_sys["angle"]
 
         return tbl
 
     @partial(jax.jit, static_argnames=["self"])
-    def _get_de_drzps(self, rz_prime, e_params):
+    def _get_de_dr_es(self, r_e, e_params):
         """
         Compute the derivatives of the Fourier m-order distortion coefficient functions
 
         Parameters
         ----------
-        rz_prime : numeric, array-like
+        r_e : numeric, array-like
         e_params : dict
         """
         d_es = {}
@@ -249,30 +256,30 @@ class OrbitModelBase:
             # Workaround because of:
             # https://github.com/google/jax/issues/7465
             tmp = jax.vmap(partial(jax.grad(self.e_funcs[m], argnums=0), **pars), 0, 0)
-            d_es[m] = tmp(rz_prime)
+            d_es[m] = tmp(r_e)
         return d_es
 
-    def get_az(self, z, params):
+    def get_acceleration(self, pos, params):
         """
         Experimental.
 
         Implementation of Appendix math from empirical-af paper.
         """
-        z = jnp.atleast_1d(z.decompose(self.unit_sys).value)
-        in_shape = z.shape
-        z = z.ravel()
+        x = jnp.atleast_1d(pos.decompose(self.unit_sys).value)
+        in_shape = x.shape
+        x = x.ravel()
 
-        rzp, _ = self.z_vz_to_rz_theta_prime(z, jnp.zeros_like(z), params)
+        r_e, _ = self.get_elliptical_coords(x, jnp.zeros_like(x), params)
 
-        Om = jnp.exp(params["ln_Omega"])
+        Om = jnp.exp(params["ln_Omega0"])
 
-        es = self.get_es(rzp, params["e_params"])
-        de_drzs = self._get_de_drzps(rzp, params["e_params"])
+        es = self.get_es(r_e, params["e_params"])
+        de_dres = self._get_de_drzps(r_e, params["e_params"])
 
         numer = 1 + jnp.sum(
             jnp.array(
                 [
-                    (-1) ** (m / 2) * (es[m] + de_drzs[m] * rzp)
+                    (-1) ** (m / 2) * (es[m] + de_dres[m] * r_e)
                     for m in self.e_funcs.keys()
                 ]
             ),
@@ -281,21 +288,21 @@ class OrbitModelBase:
         denom = 1 + jnp.sum(
             jnp.array(
                 [
-                    (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_drzs[m] * rzp)
+                    (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_dres[m] * r_e)
                     for m in self.e_funcs.keys()
                 ]
             ),
             axis=0,
         )
-        res = -(Om**2) * z * numer / denom
+        res = -(Om**2) * x * numer / denom
 
         return res.reshape(in_shape) * self.unit_sys["acceleration"]
 
     @partial(jax.jit, static_argnames=["self"])
-    def objective(self, params, z, vz, *args, **kwargs):
+    def objective(self, params, pos, vel, *args, **kwargs):
         f = getattr(self, self._objective_func)
-        f_val = f(params, z, vz, *args, **kwargs)
-        return -(f_val - self.regularization_func(params)) / z.size
+        f_val = f(params, pos, vel, *args, **kwargs)
+        return -(f_val - self.regularization_func(params)) / pos.size
 
     def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
         """
@@ -373,7 +380,7 @@ class OrbitModelBase:
 
         return bounds_l, bounds_r
 
-    def check_e_funcs(self, e_params, rz_prime_max=1.0):
+    def check_e_funcs(self, e_params, r_e_max=1.0):
         """
         Check that the parameter values and functions used for the e_m(r_z') functions
         are valid given the condition that d(r_z)/d(r_z') > 0.
@@ -381,11 +388,11 @@ class OrbitModelBase:
         import numpy as np
 
         # TODO: 16 is a magic number
-        rz_primes = np.linspace(np.sqrt(1e-3), np.sqrt(rz_prime_max), 16) ** 2
+        r_es = np.linspace(np.sqrt(1e-3), np.sqrt(r_e_max), 16) ** 2
 
         # TODO: potential issue if order of arguments in e_funcs() call is different
         # from the order of the values in the e_params dictionary...
-        d_em_d_rzp_funcs = {
+        d_em_d_re_funcs = {
             m: jax.vmap(
                 jax.grad(self.e_funcs[m], argnums=0),
                 in_axes=[0] + [None] * len(e_params[m]),
@@ -393,18 +400,17 @@ class OrbitModelBase:
             for m in self.e_funcs.keys()
         }
 
-        thps = np.linspace(0, np.pi / 2, 128)
-        checks = np.zeros((len(rz_primes), len(thps)))
+        thes = np.linspace(0, np.pi / 2, 128)
+        checks = np.zeros((len(r_es), len(thes)))
 
-        for j, thp in enumerate(thps):
+        for j, th_e in enumerate(thes):
             checks[:, j] = jnp.sum(
                 jnp.array(
                     [
-                        jnp.cos(m * thp)
+                        jnp.cos(m * th_e)
                         * (
-                            e_func(rz_primes, **e_params[m])
-                            + rz_primes
-                            * d_em_d_rzp_funcs[m](rz_primes, *e_params[m].values())
+                            e_func(r_es, **e_params[m])
+                            + r_es * d_em_d_re_funcs[m](r_es, *e_params[m].values())
                         )
                         for m, e_func in self.e_funcs.items()
                     ]
@@ -512,52 +518,56 @@ class DensityOrbitModel(OrbitModelBase):
     )
 
     @u.quantity_input
-    def get_nu_center(self, z: u.kpc, vz: u.km / u.s):
+    def estimate_Omega0(self, pos: u.kpc, vel: u.km / u.s):
         """
-        Estimate the asymptotic midplane frequency and zero-point in z, vz
+        Estimate the asymptotic frequency and zero-points
 
         Parameters
         ----------
-        z : quantity-like or array-like
-        vz : quantity-like or array-like
+        pos : quantity-like or array-like
+        vel : quantity-like or array-like
         """
         import numpy as np
 
-        z = z.decompose(self.unit_sys).value
-        vz = vz.decompose(self.unit_sys).value
+        x = pos.decompose(self.unit_sys).value
+        v = vel.decompose(self.unit_sys).value
 
-        std_z = 1.5 * MAD(z, ignore_nan=True)
-        std_vz = 1.5 * MAD(vz, ignore_nan=True)
+        std_z = 1.5 * MAD(x, ignore_nan=True)
+        std_vz = 1.5 * MAD(v, ignore_nan=True)
         nu = std_vz / std_z
 
-        pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
+        pars0 = {
+            "pos0": np.nanmedian(x),
+            "vel0": np.nanmedian(v),
+            "ln_Omega0": np.log(nu),
+        }
         return pars0
 
     @u.quantity_input
-    def get_data_ln_dens_func(
-        self, z: u.kpc, vz: u.km / u.s, pars0=None, N_rz_bins=25, spl_k=3
+    def _estimate_data_ln_dens_func(
+        self, pos: u.kpc, vel: u.km / u.s, pars0=None, N_r_bins=25, spl_k=3
     ):
         """
         Return a function to compute the log-density of the data
 
         Parameters
         ----------
-        z : quantity-like or array-like
-        vz : quantity-like or array-like
+        pos : quantity-like or array-like
+        vel : quantity-like or array-like
         """
         import numpy as np
 
         if pars0 is None:
-            pars0 = self.get_nu_center(z, vz)
+            pars0 = self.estimate_Omega0(pos, vel)
 
-        z = z.decompose(self.unit_sys).value
-        vz = vz.decompose(self.unit_sys).value
+        x = pos.decompose(self.unit_sys).value
+        v = vel.decompose(self.unit_sys).value
 
-        rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
+        r_e, _ = self.get_elliptical_coords(x, v, pars0)
 
-        max_rz = np.nanpercentile(rzp, 99.5)
-        rz_bins = np.linspace(0, max_rz, N_rz_bins)
-        dens_H, xe = np.histogram(rzp, bins=rz_bins)
+        max_rz = np.nanpercentile(r_e, 99.5)
+        rz_bins = np.linspace(0, max_rz, N_r_bins)
+        dens_H, xe = np.histogram(r_e, bins=rz_bins)
         xc = 0.5 * (xe[:-1] + xe[1:])
         ln_dens = np.log(dens_H) - np.log(2 * np.pi * xc * (xe[1:] - xe[:-1]))
 
@@ -568,20 +578,20 @@ class DensityOrbitModel(OrbitModelBase):
         return xc, ln_dens, spl
 
     @u.quantity_input
-    def get_params_init(self, z: u.kpc, vz: u.km / u.s, ln_dens_params0=None):
+    def get_params_init(self, pos: u.kpc, vel: u.km / u.s, ln_dens_params0=None):
         """
         Estimate initial model parameters from the data
 
         Parameters
         ----------
-        z : quantity-like or array-like
-        vz : quantity-like or array-like
+        pos : quantity-like or array-like
+        vel : quantity-like or array-like
         ln_dens_params0 : dict (optional)
         """
         import numpy as np
 
-        pars0 = self.get_nu_center(z, vz)
-        xx, yy, ln_dens_spl = self.get_data_ln_dens_func(z, vz, pars0)
+        pars0 = self.estimate_Omega0(pos, vel)
+        xx, yy, ln_dens_spl = self._estimate_data_ln_dens_func(pos, vel, pars0)
 
         if ln_dens_params0 is not None:
             # Fit the specified ln_dens_func to the measured densities
@@ -605,28 +615,25 @@ class DensityOrbitModel(OrbitModelBase):
                     RuntimeWarning,
                 )
 
-        # If default e_funcs, we can specify some defaults:
-        pars0.update(self._get_default_e_params())
-
         return pars0
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_ln_dens(self, rz, params):
-        return self.ln_dens_func(rz, **params["ln_dens_params"])
+    def get_ln_dens(self, r, params):
+        return self.ln_dens_func(r, **params["ln_dens_params"])
 
     @partial(jax.jit, static_argnames=["self"])
-    def ln_density(self, z, vz, params):
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
-        rz = self.get_rz(rzp, thp, params["e_params"])
-        return self.get_ln_dens(rz, params)
+    def ln_density(self, pos, vel, params):
+        r_e, th_e = self.get_elliptical_coords(pos, vel, params)
+        r = self.get_r(r_e, th_e, params["e_params"])
+        return self.get_ln_dens(r, params)
 
     @partial(jax.jit, static_argnames=["self"])
-    def ln_poisson_likelihood(self, params, z, vz, H):
+    def ln_poisson_likelihood(self, params, pos, vel, dens):
         # Expected number:
-        ln_Lambda = self.ln_density(z, vz, params)
+        ln_Lambda = self.ln_density(pos, vel, params)
 
         # gammaln(x+1) = log(factorial(x))
-        return (H * ln_Lambda - jnp.exp(ln_Lambda) - gammaln(H + 1)).sum()
+        return (dens * ln_Lambda - jnp.exp(ln_Lambda) - gammaln(dens + 1)).sum()
 
 
 class LabelOrbitModel(OrbitModelBase):
@@ -655,22 +662,22 @@ class LabelOrbitModel(OrbitModelBase):
     )
 
     @u.quantity_input
-    def get_params_init(self, z: u.kpc, vz: u.km / u.s, label, label_params0=None):
+    def get_params_init(self, pos: u.kpc, vel: u.km / u.s, label, label_params0=None):
         """
         Estimate initial model parameters from the data
 
         Parameters
         ----------
-        z : quantity-like or array-like
-        vz : quantity-like or array-like
+        pos : quantity-like or array-like
+        vel : quantity-like or array-like
         label : array-like
 
         """
         import numpy as np
         import scipy.interpolate as sci
 
-        z = z.decompose(self.unit_sys).value
-        vz = vz.decompose(self.unit_sys).value
+        x = pos.decompose(self.unit_sys).value
+        v = vel.decompose(self.unit_sys).value
 
         # First, estimate nu0 with some crazy bullshit:
         med_stat = np.nanpercentile(label, 15)
@@ -686,20 +693,24 @@ class LabelOrbitModel(OrbitModelBase):
         else:
             raise ValueError("Shit!")
 
-        vvv = np.abs(vz.ravel()[annulus_idx])
-        zzz = np.abs(z.ravel()[annulus_idx])
+        vvv = np.abs(v.ravel()[annulus_idx])
+        zzz = np.abs(x.ravel()[annulus_idx])
         v_z0 = np.median(vvv[zzz < 0.2 * np.median(zzz)])  # MAGIC NUMBER 0.2
         z_v0 = np.median(zzz[vvv < 0.2 * np.median(vvv)])  # MAGIC NUMBER 0.2
         nu = v_z0 / z_v0
 
-        pars0 = {"z0": np.nanmedian(z), "vz0": np.nanmedian(vz), "ln_Omega": np.log(nu)}
-        rzp, _ = self.z_vz_to_rz_theta_prime(z, vz, pars0)
+        pars0 = {
+            "pos0": np.nanmedian(x),
+            "vel0": np.nanmedian(v),
+            "ln_Omega0": np.log(nu),
+        }
+        r_e, _ = self.get_elliptical_coords(x, v, pars0)
 
         if label_params0 is not None:
             # Now estimate the label function spline values, again, with some craycray:
             bins = np.linspace(0, 1.0, 9) ** 2  # TODO: arbitrary bin max = 1
             stat = binned_statistic(
-                rzp.ravel(), label.ravel(), bins=bins, statistic=np.nanmedian
+                r_e.ravel(), label.ravel(), bins=bins, statistic=np.nanmedian
             )
             xc = 0.5 * (stat.bin_edges[:-1] + stat.bin_edges[1:])
 
@@ -727,26 +738,23 @@ class LabelOrbitModel(OrbitModelBase):
                     RuntimeWarning,
                 )
 
-        # If default e_funcs, we can specify some defaults:
-        pars0.update(self._get_default_e_params())
-
         return pars0
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_label(self, rz, params):
-        return self.label_func(rz, **params["label_params"])
+    def get_label(self, r, params):
+        return self.label_func(r, **params["label_params"])
 
     @partial(jax.jit, static_argnames=["self"])
-    def label(self, z, vz, params):
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
-        rz = self.get_rz(rzp, thp, params["e_params"])
-        return self.get_label(rz, params)
+    def label(self, pos, vel, params):
+        r_e, th_e = self.get_elliptical_coords(pos, vel, params)
+        r = self.get_rz(r_e, th_e, params["e_params"])
+        return self.get_label(r, params)
 
     @partial(jax.jit, static_argnames=["self"])
-    def ln_label_likelihood(self, params, z, vz, label, label_err):
-        rzp, thp = self.z_vz_to_rz_theta_prime(z, vz, params)
-        rz = self.get_rz(rzp, thp, params["e_params"])
-        model_label = self.get_label(rz, params)
+    def ln_label_likelihood(self, params, pos, vel, label, label_err):
+        r_e, th_e = self.get_elliptical_coords(pos, vel, params)
+        r = self.get_r(r_e, th_e, params["e_params"])
+        model_label = self.get_label(r, params)
 
         # log of a gaussian
         return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
