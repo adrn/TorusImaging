@@ -18,7 +18,6 @@ from torusimaging.jax_helpers import simpson
 __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 
 
-# TODO: define classmethods to create with standard splines, pass in number of knots
 class OrbitModelBase:
     def __init__(self, e_funcs, regularization_func=None, unit_sys=galactic):
         r"""
