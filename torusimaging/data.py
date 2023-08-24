@@ -100,7 +100,7 @@ class OTIData:
             "pos": xc * self.units["length"],
             "vel": yc * self.units["length"] / self.units["time"],
             label_name: stat.statistic.T,
-        }
+        }, label_name
 
     # TODO: add a way to get a binned label error bars
     # stat_err = binned_statistic_2d(
