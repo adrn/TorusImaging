@@ -7,10 +7,12 @@ from astropy.convolution import Gaussian2DKernel, convolve
 def plot_data_models_residual(
     binned_data,
     model,
-    params_init,
     params_fit,
+    params_init=None,
+    label_name="counts",
     smooth_residual=None,
     vlim_residual=0.3,
+    fractional_residual=True,
     usys=None,
 ):
     """
@@ -20,10 +22,8 @@ def plot_data_models_residual(
     Parameters
     ----------
     binned_data : dict
-    model0 : `VerticalOrbitModel`
+    model :
         The model at parameter initialization.
-    model : `VerticalOrbitModel`
-        The model after fitting to the data.
     smooth_residual : float, None (optional)
         If specified (as a float), smooth the residual image by a Gaussian with kernel
         with set by this parameter.
@@ -39,124 +39,85 @@ def plot_data_models_residual(
         for k, v in binned_data.items()
     }
 
-    vlim = dict(norm=mpl.colors.LogNorm(vmin=1e-1, vmax=3e4), shading="auto")
+    if label_name == "counts":
+        vlim = dict(norm=mpl.colors.LogNorm(vmin=0.5), shading="auto")
+
+        def model_func(*args, **kwargs):
+            return np.exp(model.ln_density(*args, **kwargs))
+
+    else:
+        vlim = dict(
+            norm=mpl.colors.Normalize(
+                *np.nanpercentile(binned_data[label_name], [1, 99])
+            ),
+            shading="auto",
+        )
+        model_func = model.label
+
+    ncols = 3
+    if params_init is not None:
+        ncols += 1
 
     fig, axes = plt.subplots(
-        1, 4, figsize=(22, 5.4), sharex=True, sharey=True, constrained_layout=True
+        1,
+        ncols,
+        figsize=(5.5 * ncols, 5.4),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
     )
 
-    cs = axes[0].pcolormesh(bd["vel"], bd["pos"], bd["counts"], **vlim)
+    cs = axes[0].pcolormesh(bd["vel"], bd["pos"], bd[label_name], **vlim)
 
-    # Initial model:
-    model0_H = np.exp(
-        model.ln_density(pos=bd["pos"], vel=bd["vel"], params=params_init)
-    )
-    cs = axes[1].pcolormesh(bd["vel"], bd["pos"], model0_H, **vlim)
+    i = 1
+
+    if params_init is not None:
+        # Initial model:
+        model0_H = model_func(pos=bd["pos"], vel=bd["vel"], params=params_init)
+        cs = axes[1].pcolormesh(bd["vel"], bd["pos"], model0_H, **vlim)
+        i += 1
 
     # Fitted model:
-    model_H = np.exp(model.ln_density(pos=bd["pos"], vel=bd["vel"], params=params_fit))
-    cs = axes[2].pcolormesh(bd["vel"], bd["pos"], model_H, **vlim)
-    fig.colorbar(cs, ax=axes[:3], aspect=40)
+    model_H = model_func(pos=bd["pos"], vel=bd["vel"], params=params_fit)
+    cs = axes[i].pcolormesh(bd["vel"], bd["pos"], model_H, **vlim)
+    fig.colorbar(cs, ax=axes[: i + 1], aspect=40)
 
     # Residual:
-    resid = np.array((bd["counts"] - model_H) / model_H)
-    resid[bd["counts"] < 5] = np.nan
+    if fractional_residual:
+        resid = np.array((bd[label_name] - model_H) / model_H)
+    else:
+        resid = np.array((bd[label_name] - model_H))
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
-    cs = axes[3].pcolormesh(
+
+    if not hasattr(vlim_residual, "__len__"):
+        vlim_residual = (-vlim_residual, vlim_residual)
+
+    cs = axes[i + 1].pcolormesh(
         bd["vel"],
         bd["pos"],
         resid,
-        vmin=-vlim_residual,
-        vmax=vlim_residual,
+        vmin=vlim_residual[0],
+        vmax=vlim_residual[1],
         cmap="RdYlBu_r",
         shading="auto",
     )
-    fig.colorbar(cs, ax=axes[3], aspect=40)
+    fig.colorbar(cs, ax=axes[i + 1], aspect=40)
 
     for ax in axes:
         ax.set_xlabel(f'$v_z$ [{usys["length"] / usys["time"]:latex_inline}]')
     axes[0].set_ylabel(f'$z$ [{usys["length"]:latex_inline}]')
 
     axes[0].set_title("data")
-    axes[1].set_title("initial model")
-    axes[2].set_title("fitted model")
-    axes[3].set_title("normalized residual")
+    i = 1
+    if params_init is not None:
+        axes[1].set_title("initial model")
+        i += 1
+    axes[i].set_title("fitted model")
 
-    return fig, axes
-
-
-def plot_data_models_label_residual(
-    data_H,
-    model,
-    params_init,
-    params_fit,
-    smooth_residual=None,
-    vlim=None,
-    vlim_residual=0.02,
-    usys=None,
-    mask_no_data=True,
-):
-    if usys is None:
-        usys = model.unit_sys
-
-    if vlim is None:
-        vlim = np.nanpercentile(data_H["label"], [1, 99])
-    pcolor_kw = dict(shading="auto", vmin=vlim[0], vmax=vlim[1])
-
-    fig, axes = plt.subplots(
-        1, 4, figsize=(22, 5.4), sharex=True, sharey=True, constrained_layout=True
-    )
-
-    cs = axes[0].pcolormesh(data_H["vz"], data_H["z"], data_H["label"], **pcolor_kw)
-
-    # Initial model:
-    model0_H = np.array(model.label(z=data_H["z"], vz=data_H["vz"], params=params_init))
-    if mask_no_data:
-        model0_H[~np.isfinite(data_H["label"])] = np.nan
-    cs = axes[1].pcolormesh(
-        data_H["vz"],
-        data_H["z"],
-        model0_H,
-        **pcolor_kw,
-    )
-
-    # Fitted model:
-    model_H = np.array(model.label(z=data_H["z"], vz=data_H["vz"], params=params_fit))
-    if mask_no_data:
-        model_H[~np.isfinite(data_H["label"])] = np.nan
-    cs = axes[2].pcolormesh(
-        data_H["vz"],
-        data_H["z"],
-        model_H,
-        **pcolor_kw,
-    )
-    fig.colorbar(cs, ax=axes[:3], aspect=40)
-
-    # Residual:
-    #     resid = np.array((data_H['label_stat'] - model_H) / model_H)
-    resid = np.array(data_H["label"] - model_H)
-    # resid[data_H['H'] < 5] = np.nan
-    if smooth_residual is not None:
-        resid = convolve(resid, Gaussian2DKernel(smooth_residual))
-    cs = axes[3].pcolormesh(
-        data_H["vz"],
-        data_H["z"],
-        resid,
-        vmin=-vlim_residual,
-        vmax=vlim_residual,
-        cmap="RdYlBu_r",
-        shading="auto",
-    )
-    fig.colorbar(cs, ax=axes[3], aspect=40)
-
-    for ax in axes:
-        ax.set_xlabel(f'$v_z$ [{usys["length"] / usys["time"]:latex_inline}]')
-    axes[0].set_ylabel(f'$z$ [{usys["length"]:latex_inline}]')
-
-    axes[0].set_title("data")
-    axes[1].set_title("initial model")
-    axes[2].set_title("fitted model")
-    axes[3].set_title("residual")
+    if fractional_residual:
+        axes[i + 1].set_title("fractional residual")
+    else:
+        axes[i + 1].set_title("residual")
 
     return fig, axes
