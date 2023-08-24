@@ -746,7 +746,7 @@ class LabelOrbitModel(OrbitModelBase):
     @partial(jax.jit, static_argnames=["self"])
     def label(self, pos, vel, params):
         r_e, th_e = self.get_elliptical_coords(pos, vel, params)
-        r = self.get_rz(r_e, th_e, params["e_params"])
+        r = self.get_r(r_e, th_e, params["e_params"])
         return self.get_label(r, params)
 
     @partial(jax.jit, static_argnames=["self"])
