@@ -273,7 +273,7 @@ class OrbitModelBase:
         Om = jnp.exp(params["ln_Omega0"])
 
         es = self.get_es(r_e, params["e_params"])
-        de_dres = self._get_de_drzps(r_e, params["e_params"])
+        de_dres = self._get_de_dr_es(r_e, params["e_params"])
 
         numer = 1 + jnp.sum(
             jnp.array(
@@ -470,7 +470,9 @@ class OrbitModelBase:
             i += size
         return jax.tree_util.tree_unflatten(treedef, arrs)
 
-    def get_crlb_error_samples(self, params, data, size=1, seed=None):
+    def get_crlb_error_samples(
+        self, params, data, size=1, seed=None, list_of_samples=True
+    ):
         import numpy as np
 
         treedef = jax.tree_util.tree_structure(params)
@@ -485,10 +487,19 @@ class OrbitModelBase:
 
         arrs = []
         i = 0
-        for size in sizes:
-            arrs.append(jnp.array(samples[..., i : i + size]))
-            i += size
-        return jax.tree_util.tree_unflatten(treedef, arrs)
+        for size_ in sizes:
+            arrs.append(jnp.array(samples[..., i : i + size_]))
+            i += size_
+
+        if list_of_samples:
+            samples = []
+            for n in range(size):
+                samples.append(
+                    jax.tree_util.tree_unflatten(treedef, [arr[n] for arr in arrs])
+                )
+            return samples
+        else:
+            return jax.tree_util.tree_unflatten(treedef, arrs)
 
 
 class DensityOrbitModel(OrbitModelBase):
