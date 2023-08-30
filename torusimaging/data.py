@@ -27,6 +27,17 @@ class OTIData:
                     f"{self._pos.shape}"
                 )
 
+    def __getitem__(self, slc):
+        return OTIData(
+            self._pos[slc],
+            self._vel[slc],
+            units=self.units,
+            **{k: v[slc] for k, v in self.labels.items()},
+        )
+
+    def __len__(self):
+        return len(self._pos)
+
     @property
     def pos(self):
         return self._pos * self.units["length"]
