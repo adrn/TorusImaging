@@ -461,7 +461,7 @@ class OrbitModelBase:
         sizes = [x.size for x in flattened]
 
         fisher_inv = self.get_crlb(params, data)
-        diag = np.diag(fisher_inv)
+        diag = np.diag(fisher_inv).copy()
         diag[(diag < 0) | (diag > 1e18)] = 0.0
         flat_param_uncs = np.sqrt(diag)
 
