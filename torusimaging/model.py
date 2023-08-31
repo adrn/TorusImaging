@@ -461,7 +461,9 @@ class OrbitModelBase:
         sizes = [x.size for x in flattened]
 
         fisher_inv = self.get_crlb(params, data)
-        flat_param_uncs = np.sqrt(np.diag(fisher_inv))
+        diag = np.diag(fisher_inv)
+        diag[(diag < 0) | (diag > 1e18)] = 0.0
+        flat_param_uncs = np.sqrt(diag)
 
         arrs = []
         i = 0
@@ -481,9 +483,18 @@ class OrbitModelBase:
         flat_params = np.concatenate([np.atleast_1d(x) for x in flattened])
 
         crlb = self.get_crlb(params, data)
+        diag = np.diag(crlb)
+        bad_idx = np.where((diag < 0) | (diag > 1e18))[0]
+
+        for i in bad_idx:
+            crlb[i] = crlb[:, i] = 0.0
+            crlb[i, i] = 1.0
 
         rng = np.random.default_rng(seed=seed)
         samples = rng.multivariate_normal(flat_params, crlb, size=size)
+
+        for i in bad_idx:
+            samples[:, i] = np.nan
 
         arrs = []
         i = 0
