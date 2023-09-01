@@ -420,7 +420,7 @@ class OrbitModelBase:
         # This condition has to be met such that d(r_z)/d(r_z') > 0 at all theta_z':
         return np.all(checks > -1), checks
 
-    def get_crlb(self, params, data):
+    def get_crlb(self, params, data, inv=False):
         """
         EXPERIMENTAL
 
@@ -444,6 +444,8 @@ class OrbitModelBase:
         flat_params = np.concatenate([np.atleast_1d(x) for x in flattened])
 
         fisher = jax.hessian(wrapper)(flat_params, data, sizes)
+        if inv:
+            return fisher
         fisher_inv = np.linalg.inv(fisher)
 
         return fisher_inv
