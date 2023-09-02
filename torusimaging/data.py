@@ -5,14 +5,21 @@ from scipy.stats import binned_statistic_2d
 
 
 class OTIData:
-    def __init__(self, pos, vel, units=galactic, **labels):
+    def __init__(self, pos, vel, units=galactic, labels=None, label_errs=None):
         self.units = units
         self._label_names = list(labels.keys())
 
         # For now, we only support 1D pos and vel:
         self._pos = u.Quantity(pos).decompose(galactic).value
         self._vel = u.Quantity(vel).decompose(galactic).value
+
+        if labels is None:
+            labels = {}
         self.labels = {k: np.asarray(v) for k, v in labels.items()}
+
+        if label_errs is None:
+            label_errs = {}
+        self.label_errs = {k: np.asarray(v) for k, v in label_errs.items()}
 
         if self._pos.shape != self._vel.shape:
             raise ValueError("Input position and velocity must have the same shape")
@@ -26,6 +33,15 @@ class OTIData:
                     f"input labels: label {k} has shape {v.shape} but expected "
                     f"{self._pos.shape}"
                 )
+
+            if k in self.label_errs:
+                e = self.label_errs[k]
+                if self._pos.shape != e.shape:
+                    raise ValueError(
+                        "Input label errors must have the same shape as the input "
+                        f"input labels: label err {k} has shape {e.shape} but expected "
+                        f"{v.shape}"
+                    )
 
     def __getitem__(self, slc):
         return OTIData(
@@ -79,7 +95,11 @@ class OTIData:
             "counts": H.T,
         }
 
-    def get_binned_label(self, bins, label_name=None, **binned_statistic_kwargs):
+    def get_binned_label(
+        self,
+        bins,
+        label_name=None,
+    ):
         """
         Parameters
         ----------
@@ -96,29 +116,52 @@ class OTIData:
                 f"{self._label_names}"
             )
 
-        stat = binned_statistic_2d(
-            self._pos,
-            self._vel,
-            self.labels[label_name],
-            bins=self._get_bins_tuple(bins),
-            **binned_statistic_kwargs,
-        )
-        xc = 0.5 * (stat.x_edge[:-1] + stat.x_edge[1:])
-        yc = 0.5 * (stat.y_edge[:-1] + stat.y_edge[1:])
+        bins = self._get_bins_tuple(bins)
+        xc = 0.5 * (bins[0][:-1] + bins[0][1:])
+        yc = 0.5 * (bins[1][:-1] + bins[1][1:])
         xc, yc = np.meshgrid(xc, yc)
 
-        return {
+        bdata = {
             "pos": xc * self.units["length"],
             "vel": yc * self.units["length"] / self.units["time"],
-            label_name: stat.statistic.T,
-        }, label_name
+        }
 
-    # TODO: add a way to get a binned label error bars
-    # stat_err = binned_statistic_2d(
-    #         vz,
-    #         z,
-    #         label,
-    #         bins=(bins["vz"], bins["z"]),
-    #         statistic=lambda x: np.sqrt((1.5 * MAD(x)) ** 2 + err_floor**2)
-    #         / np.sqrt(len(x)),
-    #     )
+        label_data = self.labels[label_name]
+        label_err = self.label_errs.get(label_name)
+
+        if label_err is None:
+            # No label errors provided: uncertainty on the mean is related to the
+            # intrinsic scatter
+            stat_mean = binned_statistic_2d(
+                self._pos, self._vel, label_data, bins=bins, statistic="mean"
+            )
+            mean = stat_mean.statistic
+
+            stat_err = binned_statistic_2d(
+                self._pos,
+                self._vel,
+                label_data,
+                bins=bins,
+                statistic=lambda x: np.nanstd(x) / np.sqrt(len(x)),
+            )
+            err = stat_err.statistic
+
+        else:
+            # Label errors provided:
+            stat_mean1 = binned_statistic_2d(
+                self._pos,
+                self._vel,
+                label_data / label_err**2,
+                bins=bins,
+                statistic="sum",
+            )
+            stat_mean2 = binned_statistic_2d(
+                self._pos, self._vel, 1 / label_err**2, bins=bins, statistic="sum"
+            )
+            mean = stat_mean1.statistic / stat_mean2.statistic
+            err = np.sqrt(1 / stat_mean2.statistic)
+
+        bdata[label_name] = mean.T
+        bdata[f"{label_name}_err"] = err.T
+
+        return bdata, label_name
