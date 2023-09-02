@@ -48,7 +48,8 @@ class OTIData:
             self._pos[slc],
             self._vel[slc],
             units=self.units,
-            **{k: v[slc] for k, v in self.labels.items()},
+            labels={k: v[slc] for k, v in self.labels.items()},
+            label_errs={k: v[slc] for k, v in self.label_errs.items()},
         )
 
     def __len__(self):
