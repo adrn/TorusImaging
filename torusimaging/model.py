@@ -530,7 +530,12 @@ class DensityOrbitModel(OrbitModelBase):
     _objective_func = "ln_poisson_likelihood"
 
     def __init__(
-        self, ln_dens_func, e_funcs=None, regularization_func=None, unit_sys=galactic
+        self,
+        ln_dens_func,
+        e_funcs=None,
+        regularization_func=None,
+        unit_sys=galactic,
+        Bisection_kwargs=None,
     ):
         """
         {intro}
@@ -542,7 +547,10 @@ class DensityOrbitModel(OrbitModelBase):
         {params}
         """
         super().__init__(
-            e_funcs=e_funcs, regularization_func=regularization_func, unit_sys=unit_sys
+            e_funcs=e_funcs,
+            regularization_func=regularization_func,
+            unit_sys=unit_sys,
+            Bisection_kwargs=Bisection_kwargs,
         )
         self.ln_dens_func = jax.jit(ln_dens_func)
 
@@ -674,7 +682,12 @@ class LabelOrbitModel(OrbitModelBase):
     _objective_func = "ln_label_likelihood"
 
     def __init__(
-        self, label_func, e_funcs=None, regularization_func=None, unit_sys=galactic
+        self,
+        label_func,
+        e_funcs=None,
+        regularization_func=None,
+        unit_sys=galactic,
+        Bisection_kwargs=None,
     ):
         """
         {intro}
@@ -686,7 +699,10 @@ class LabelOrbitModel(OrbitModelBase):
         {params}
         """
         super().__init__(
-            e_funcs=e_funcs, regularization_func=regularization_func, unit_sys=unit_sys
+            e_funcs=e_funcs,
+            regularization_func=regularization_func,
+            unit_sys=unit_sys,
+            Bisection_kwargs=Bisection_kwargs,
         )
         self.label_func = jax.jit(label_func)
 
