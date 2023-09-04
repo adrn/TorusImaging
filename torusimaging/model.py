@@ -19,7 +19,13 @@ __all__ = ["DensityOrbitModel", "LabelOrbitModel"]
 
 
 class OrbitModelBase:
-    def __init__(self, e_funcs, regularization_func=None, unit_sys=galactic):
+    def __init__(
+        self,
+        e_funcs,
+        regularization_func=None,
+        unit_sys=galactic,
+        Bisection_kwargs=None,
+    ):
         r"""
         This inherently assumes that you are working in a 1D phase space with position
         coordinate ``x`` and velocity coordinate ``v``.
@@ -66,6 +72,14 @@ class OrbitModelBase:
         if regularization_func is None:
             regularization_func = lambda *_, **__: 0.0  # noqa
         self.regularization_func = regularization_func
+
+        if Bisection_kwargs is None:
+            Bisection_kwargs = {}
+        self.Bisection_kwargs = dict(Bisection_kwargs)
+        self.Bisection_kwargs.setdefault("lower", 0.0)
+        self.Bisection_kwargs.setdefault("upper", 1.0)
+        self.Bisection_kwargs.setdefault("maxiter", 30)
+        self.Bisection_kwargs.setdefault("tol", 1e-4)
 
     @partial(jax.jit, static_argnames=["self"])
     def get_elliptical_coords(self, pos, vel, params):
@@ -160,13 +174,10 @@ class OrbitModelBase:
         bisec = Bisection(
             lambda x, rrz, tt_prime, ee_params: self.get_r(x, tt_prime, ee_params)
             - rrz,
-            lower=0.0,
-            upper=1.0,
-            maxiter=30,
             jit=True,
             unroll=True,
             check_bracket=False,
-            tol=1e-4,
+            **self.Bisection_kwargs,
         )
         return bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params
 
