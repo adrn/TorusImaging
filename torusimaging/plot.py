@@ -121,3 +121,72 @@ def plot_data_models_residual(
         axes[i + 1].set_title("residual")
 
     return fig, axes
+
+
+def plot_cov_ellipse(mean, cov, nstd=1, ax=None, **kwargs):
+    def eigsorted(cov):
+        vals, vecs = np.linalg.eigh(cov)
+        order = vals.argsort()[::-1]
+        return vals[order], vecs[:, order]
+
+    if ax is None:
+        ax = plt.gca()
+
+    vals, vecs = eigsorted(cov)
+    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+
+    # Width and height are "full" widths, not radius
+    width, height = 2 * nstd * np.sqrt(vals)
+    ellip = mpl.patches.Ellipse(
+        xy=mean, width=width, height=height, angle=theta, **kwargs
+    )
+
+    ax.add_artist(ellip)
+    return ellip
+
+
+def plot_cov_corner(cov, mean=None, labels=None, subplots_kw=None, ellipse_kw=None):
+    if mean is None:
+        mean = np.zeros(cov.shape[0])
+
+    if subplots_kw is None:
+        subplots_kw = {}
+
+    if ellipse_kw is None:
+        ellipse_kw = {}
+
+    K = cov.shape[0]
+    subplots_kw.setdefault("figsize", (K * 3 + 1, K * 3))
+    subplots_kw.setdefault("sharex", "col")
+    subplots_kw.setdefault("sharey", "row")
+    subplots_kw.setdefault("constrained_layout", True)
+
+    fig, axes = plt.subplots(K - 1, K - 1, **subplots_kw)
+    print(K, np.shape(axes))
+    for i in range(K - 1):
+        for j in range(1, K):
+            ax = axes[j - 1, i]
+            if i >= j:
+                ax.set_visible(False)
+                continue
+
+            idx = [i, j]
+            subcov = cov[idx][:, idx]
+
+            if np.any(~np.isfinite(mean[idx])) or np.any(np.diag(subcov) <= 0):
+                continue
+
+            plot_cov_ellipse(mean[idx], subcov, ax=ax, **ellipse_kw)
+
+            xsize = np.sqrt(subcov[0, 0])
+            ysize = np.sqrt(subcov[1, 1])
+            ax.set_xlim(-1.25 * xsize, 1.25 * xsize)
+            ax.set_ylim(-1.25 * ysize, 1.25 * ysize)
+
+    if labels is not None:
+        for i in range(K - 1):
+            axes[i, 0].set_ylabel(labels[i + 1])
+        for i in range(K - 1):
+            axes[-1, i].set_xlabel(labels[i])
+
+    return fig, axes
