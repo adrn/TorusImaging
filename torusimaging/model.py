@@ -19,17 +19,9 @@ __all__ = ["TorusImaging1D"]
 
 class TorusImaging1D:
     def __init__(
-        self,
-        label_func,
-        e_funcs,
-        regularization_func=None,
-        unit_sys=galactic,
-        Bisection_kwargs=None,
+        self, label_func, e_funcs, regularization_func=None, unit_sys=galactic
     ):
         r"""
-        TODO: subclass for model with splines everywhere?
-        TODO: Automatic creation with SplineTorusImaging1D.auto()
-
         This inherently assumes that you are working in a 1D phase space with position
         coordinate ``x`` and velocity coordinate ``v``.
 
@@ -76,14 +68,6 @@ class TorusImaging1D:
         if regularization_func is None:
             regularization_func = lambda *_, **__: 0.0  # noqa
         self.regularization_func = regularization_func
-
-        if Bisection_kwargs is None:
-            Bisection_kwargs = {}
-        self.Bisection_kwargs = dict(Bisection_kwargs)
-        self.Bisection_kwargs.setdefault("lower", 0.0)
-        self.Bisection_kwargs.setdefault("upper", 1.0)
-        self.Bisection_kwargs.setdefault("maxiter", 30)
-        self.Bisection_kwargs.setdefault("tol", 1e-4)
 
     # ---------------------------------------------------------------------------------
     # Internal functions used within likelihood functions:
@@ -134,7 +118,7 @@ class TorusImaging1D:
         theta_e : numeric, array-like
         e_params : dict
         """
-        es = self.get_es(r_e, e_params)
+        es = self._get_es(r_e, e_params)
         return r_e * (
             1
             + jnp.sum(
@@ -153,7 +137,7 @@ class TorusImaging1D:
         theta_prime : numeric, array-like
         e_params : dict
         """
-        es = self.get_es(r_e, e_params)
+        es = self._get_es(r_e, e_params)
         # TODO: why is the π/2 needed below??
         return theta_e - jnp.sum(
             jnp.array(
@@ -163,7 +147,7 @@ class TorusImaging1D:
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def _get_r_e(self, r, theta_e, e_params):
+    def _get_r_e(self, r, theta_e, e_params, Bisection_kwargs):
         """
         Compute the elliptical radius :math:`r_e` by inverting the distortion
         transformation from :math:`r`
@@ -177,66 +161,74 @@ class TorusImaging1D:
         e_params : dict
             Dictionary of parameter values for the distortion coefficient (e) functions.
         """
+        if Bisection_kwargs is None:
+            Bisection_kwargs = {}
+        Bisection_kwargs = dict(Bisection_kwargs)
+        Bisection_kwargs.setdefault("lower", 0.0)
+        Bisection_kwargs.setdefault("upper", 1.0)
+        Bisection_kwargs.setdefault("maxiter", 30)
+        Bisection_kwargs.setdefault("tol", 1e-4)
+
         bisec = Bisection(
-            lambda x, rrz, tt_prime, ee_params: self.get_r(x, tt_prime, ee_params)
+            lambda x, rrz, tt_prime, ee_params: self._get_r(x, tt_prime, ee_params)
             - rrz,
             jit=True,
             unroll=True,
             check_bracket=False,
-            **self.Bisection_kwargs,
+            **Bisection_kwargs,
         )
         return bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params
 
     @partial(jax.jit, static_argnames=["self"])
-    def _get_pos(self, r, theta_e, params):
+    def _get_pos(self, r, theta_e, params, Bisection_kwargs):
         """
         Compute the position given the distorted radius and elliptical angle
         """
-        r_e = self.get_r_e(r, theta_e, params["e_params"])
+        r_e = self._get_r_e(r, theta_e, params["e_params"], Bisection_kwargs)
         return r_e * jnp.sin(theta_e) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
     @partial(jax.jit, static_argnames=["self"])
-    def _get_vel(self, r, theta_e, params):
+    def _get_vel(self, r, theta_e, params, Bisection_kwargs):
         """
         Compute the velocity given the distorted radius and elliptical angle
         """
-        rzp = self.get_r_e(r, theta_e, params["e_params"])
+        rzp = self._get_r_e(r, theta_e, params["e_params"])
         return rzp * jnp.cos(theta_e) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_label(self, pos, vel, params):
         r_e, th_e = self._get_elliptical_coords(pos, vel, params)
-        r = self.get_r(r_e, th_e, params["e_params"])
+        r = self._get_r(r_e, th_e, params["e_params"])
         return self.label_func(r, **params["label_params"])
 
-    @partial(jax.jit, static_argnames=["self", "N_grid"])
-    def _get_T_J_theta(self, pos, vel, params, N_grid):
-        re_, the_ = self.get_elliptical_coords(pos, vel, params)
-        r = self.get_r(re_, the_, params["e_params"])
+    @partial(jax.jit, static_argnames=["self", "N_grid", "Bisection_kwargs"])
+    def _get_T_J_theta(self, pos, vel, params, N_grid, Bisection_kwargs):
+        re_, the_ = self._get_elliptical_coords(pos, vel, params)
+        r = self._get_r(re_, the_, params["e_params"])
 
         dpos_dthe_func = jax.vmap(
-            jax.grad(self.get_pos, argnums=1), in_axes=[None, 0, None]
+            jax.grad(self._get_pos, argnums=1), in_axes=[None, 0, None, None]
         )
 
-        get_vel = jax.vmap(self.get_vel, in_axes=[None, 0, None])
+        get_vel = jax.vmap(self._get_vel, in_axes=[None, 0, None, None])
 
         # Grid of theta_prime to do the integral over:
         the_grid = jnp.linspace(0, jnp.pi / 2, N_grid)
-        v_th = get_vel(r, the_grid, params)
-        dz_dthp = dpos_dthe_func(r, the_grid, params)
+        v_th = get_vel(r, the_grid, params, Bisection_kwargs)
+        dz_dthp = dpos_dthe_func(r, the_grid, params, Bisection_kwargs)
 
         Tz = 4 * simpson(dz_dthp / v_th, the_grid)
         Jz = 4 / (2 * jnp.pi) * simpson(dz_dthp * v_th, the_grid)
 
         thp_partial = jnp.linspace(0, the_, N_grid)
-        v_th_partial = get_vel(r, thp_partial, params)
-        dpos_dthe_partial = dpos_dthe_func(r, thp_partial, params)
+        v_th_partial = get_vel(r, thp_partial, params, Bisection_kwargs)
+        dpos_dthe_partial = dpos_dthe_func(r, thp_partial, params, Bisection_kwargs)
         dt = simpson(dpos_dthe_partial / v_th_partial, thp_partial)
         thz = 2 * jnp.pi * dt / Tz
 
         return Tz, Jz, thz
 
-    _get_T_J_theta = jax.vmap(_get_T_J_theta, in_axes=[None, 0, 0, None, None])
+    _get_T_J_theta = jax.vmap(_get_T_J_theta, in_axes=[None, 0, 0, None, None, None])
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_de_dr_es(self, r_e, e_params):
@@ -283,7 +275,9 @@ class TorusImaging1D:
         )
 
     @u.quantity_input
-    def compute_action_angle(self, pos: u.kpc, vel: u.km / u.s, params, N_grid=32):
+    def compute_action_angle(
+        self, pos: u.kpc, vel: u.km / u.s, params, N_grid=32, Bisection_kwargs=None
+    ):
         """
         Compute the vertical period, action, and angle given input phase-space
         coordinates.
@@ -297,7 +291,7 @@ class TorusImaging1D:
         """
         x = pos.decompose(self.unit_sys).value
         v = vel.decompose(self.unit_sys).value
-        T, J, th = self._get_T_J_theta(x, v, params, N_grid)
+        T, J, th = self._get_T_J_theta(x, v, params, N_grid, Bisection_kwargs)
 
         tbl = at.QTable()
         tbl["T"] = T * self.unit_sys["time"]
@@ -322,11 +316,11 @@ class TorusImaging1D:
         in_shape = x.shape
         x = x.ravel()
 
-        r_e, _ = self.get_elliptical_coords(x, jnp.zeros_like(x), params)
+        r_e, _ = self._get_elliptical_coords(x, jnp.zeros_like(x), params)
 
         Om = jnp.exp(params["ln_Omega0"])
 
-        es = self.get_es(r_e, params["e_params"])
+        es = self._get_es(r_e, params["e_params"])
         de_dres = self._get_de_dr_es(r_e, params["e_params"])
 
         numer = 1 + jnp.sum(
