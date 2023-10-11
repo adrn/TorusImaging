@@ -1,4 +1,5 @@
 from functools import partial
+from typing import Literal, Optional
 from warnings import warn
 
 import astropy.table as at
@@ -6,27 +7,29 @@ import astropy.units as u
 import jax
 import jax.numpy as jnp
 import jaxopt
-import scipy.interpolate as sci
-from astropy.stats import median_absolute_deviation as MAD
+import numpy.typing as npt
 from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
 from jaxopt import Bisection
-from scipy.stats import binned_statistic
 
 from torusimaging.jax_helpers import simpson
 
-__all__ = ["DensityOrbitModel", "LabelOrbitModel"]
+__all__ = ["TorusImaging1D"]
 
 
-class OrbitModelBase:
+class TorusImaging1D:
     def __init__(
         self,
+        label_func,
         e_funcs,
         regularization_func=None,
         unit_sys=galactic,
         Bisection_kwargs=None,
     ):
         r"""
+        TODO: subclass for model with splines everywhere?
+        TODO: Automatic creation with SplineTorusImaging1D.auto()
+
         This inherently assumes that you are working in a 1D phase space with position
         coordinate ``x`` and velocity coordinate ``v``.
 
@@ -64,6 +67,7 @@ class OrbitModelBase:
             from Gala: (kpc, Myr, Msun, radian).
 
         """
+        self.label_func = jax.jit(label_func)
         self.e_funcs = {int(m): jax.jit(e_func) for m, e_func in e_funcs.items()}
 
         # Unit system:
@@ -81,8 +85,11 @@ class OrbitModelBase:
         self.Bisection_kwargs.setdefault("maxiter", 30)
         self.Bisection_kwargs.setdefault("tol", 1e-4)
 
+    # ---------------------------------------------------------------------------------
+    # Internal functions used within likelihood functions:
+    #
     @partial(jax.jit, static_argnames=["self"])
-    def get_elliptical_coords(self, pos, vel, params):
+    def _get_elliptical_coords(self, pos, vel, params):
         r"""
         Compute the raw elliptical radius :math:`r_e` (``r_e``) and angle
         :math:`\theta_e'` (``theta_e``)
@@ -102,7 +109,7 @@ class OrbitModelBase:
         return r_e, t_e
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_es(self, r_e, e_params):
+    def _get_es(self, r_e, e_params):
         """
         Compute the Fourier m-order distortion coefficients
 
@@ -117,7 +124,7 @@ class OrbitModelBase:
         return es
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_r(self, r_e, theta_e, e_params):
+    def _get_r(self, r_e, theta_e, e_params):
         """
         Compute the distorted radius :math:`r`
 
@@ -136,7 +143,7 @@ class OrbitModelBase:
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_theta(self, r_e, theta_e, e_params):
+    def _get_theta(self, r_e, theta_e, e_params):
         """
         Compute the phase angle
 
@@ -156,7 +163,7 @@ class OrbitModelBase:
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_r_e(self, r, theta_e, e_params):
+    def _get_r_e(self, r, theta_e, e_params):
         """
         Compute the elliptical radius :math:`r_e` by inverting the distortion
         transformation from :math:`r`
@@ -170,7 +177,6 @@ class OrbitModelBase:
         e_params : dict
             Dictionary of parameter values for the distortion coefficient (e) functions.
         """
-        # TODO: lots of numbers are hard-set below!
         bisec = Bisection(
             lambda x, rrz, tt_prime, ee_params: self.get_r(x, tt_prime, ee_params)
             - rrz,
@@ -182,7 +188,7 @@ class OrbitModelBase:
         return bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_pos(self, r, theta_e, params):
+    def _get_pos(self, r, theta_e, params):
         """
         Compute the position given the distorted radius and elliptical angle
         """
@@ -190,12 +196,18 @@ class OrbitModelBase:
         return r_e * jnp.sin(theta_e) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
     @partial(jax.jit, static_argnames=["self"])
-    def get_vel(self, r, theta_e, params):
+    def _get_vel(self, r, theta_e, params):
         """
         Compute the velocity given the distorted radius and elliptical angle
         """
         rzp = self.get_r_e(r, theta_e, params["e_params"])
         return rzp * jnp.cos(theta_e) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+
+    @partial(jax.jit, static_argnames=["self"])
+    def _get_label(self, pos, vel, params):
+        r_e, th_e = self._get_elliptical_coords(pos, vel, params)
+        r = self.get_r(r_e, th_e, params["e_params"])
+        return self.label_func(r, **params["label_params"])
 
     @partial(jax.jit, static_argnames=["self", "N_grid"])
     def _get_T_J_theta(self, pos, vel, params, N_grid):
@@ -226,6 +238,50 @@ class OrbitModelBase:
 
     _get_T_J_theta = jax.vmap(_get_T_J_theta, in_axes=[None, 0, 0, None, None])
 
+    @partial(jax.jit, static_argnames=["self"])
+    def _get_de_dr_es(self, r_e, e_params):
+        """
+        Compute the derivatives of the Fourier m-order distortion coefficient functions
+
+        Parameters
+        ----------
+        r_e : numeric, array-like
+        e_params : dict
+        """
+        d_es = {}
+        for m, pars in e_params.items():
+            # Workaround because of:
+            # https://github.com/google/jax/issues/7465
+            tmp = jax.vmap(partial(jax.grad(self.e_funcs[m], argnums=0), **pars), 0, 0)
+            d_es[m] = tmp(r_e)
+        return d_es
+
+    # ---------------------------------------------------------------------------------
+    # Public API
+    #
+    @u.quantity_input
+    def compute_elliptical(self, pos: u.kpc, vel: u.km / u.s, params):
+        """
+        Compute the elliptical radius :math:`r_e` (``r_e``) and angle :math:`\theta_e'`
+        (``theta_e``)
+
+        Parameters
+        ----------
+        pos : `astropy.units.Quantity`
+        vel : `astropy.units.Quantity`
+        params : dict
+        """
+
+        x = pos.decompose(self.unit_sys).value
+        v = vel.decompose(self.unit_sys).value
+        re, te = self._get_elliptical_coords(x, v, params)
+        return (
+            re
+            * self.unit_sys["length"]
+            / (self.unit_sys["angle"] ** 0.5 / self.unit_sys["time"] ** 0.5),
+            te * self.unit_sys["angle"],
+        )
+
     @u.quantity_input
     def compute_action_angle(self, pos: u.kpc, vel: u.km / u.s, params, N_grid=32):
         """
@@ -251,29 +307,16 @@ class OrbitModelBase:
 
         return tbl
 
-    @partial(jax.jit, static_argnames=["self"])
-    def _get_de_dr_es(self, r_e, e_params):
+    @u.quantity_input
+    def get_acceleration(self, pos: u.kpc, params):
         """
-        Compute the derivatives of the Fourier m-order distortion coefficient functions
+        Compute the acceleration as a function of position in the limit as velocity
+        goes to zero
 
         Parameters
         ----------
-        r_e : numeric, array-like
-        e_params : dict
-        """
-        d_es = {}
-        for m, pars in e_params.items():
-            # Workaround because of:
-            # https://github.com/google/jax/issues/7465
-            tmp = jax.vmap(partial(jax.grad(self.e_funcs[m], argnums=0), **pars), 0, 0)
-            d_es[m] = tmp(r_e)
-        return d_es
-
-    def get_acceleration(self, pos, params):
-        """
-        Experimental.
-
-        Implementation of Appendix math from empirical-af paper.
+        pos : `astropy.units.Quantity`
+        params : dict
         """
         x = jnp.atleast_1d(pos.decompose(self.unit_sys).value)
         in_shape = x.shape
@@ -309,25 +352,56 @@ class OrbitModelBase:
         return res.reshape(in_shape) * self.unit_sys["acceleration"]
 
     @partial(jax.jit, static_argnames=["self"])
-    def objective(self, params, pos, vel, *args, **kwargs):
-        f = getattr(self, self._objective_func)
-        f_val = f(params, pos, vel, *args, **kwargs)
+    def ln_poisson_likelihood(self, params, pos, vel, counts):
+        # Expected number:
+        ln_Lambda = self._get_label(pos, vel, params)
+
+        # gammaln(x+1) = log(factorial(x))
+        return (counts * ln_Lambda - jnp.exp(ln_Lambda) - gammaln(counts + 1)).sum()
+
+    @partial(jax.jit, static_argnames=["self"])
+    def ln_gaussian_likelihood(self, params, pos, vel, label, label_err):
+        model_label = self._get_label(pos, vel, **params)
+        return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
+
+    @partial(jax.jit, static_argnames=["self"])
+    def objective_poisson(self, params, pos, vel, counts):
+        f_val = self.ln_poisson_likelihood(params, pos, vel, counts)
         return -(f_val - self.regularization_func(params)) / pos.size
 
-    def optimize(self, params0, bounds=None, jaxopt_kwargs=None, **data):
+    @partial(jax.jit, static_argnames=["self"])
+    def objective_gaussian(self, params, pos, vel, label, label_err):
+        f_val = self.ln_gaussian_likelihood(params, pos, vel, label, label_err)
+        return -(f_val - self.regularization_func(params)) / pos.size
+
+    def optimize(
+        self,
+        params0: dict,
+        objective: Literal["poisson", "gaussian"],
+        bounds: Optional[tuple[dict]] = None,
+        jaxopt_kwargs: Optional[dict] = None,
+        **data: npt.ArrayLike,
+    ) -> jaxopt.base.OptStep:
         """
+        Optimize the model parameters given the input data using
+        `jaxopt.ScipyboundedMinimize`.
+
         Parameters
         ----------
-        params0 : dict (optional)
-        bounds : tuple of dict (optional)
-        jaxopt_kwargs : dict (optional)
+        params0
+            The initial values of the parameters.
+        objective
+            The string name of the objective function to use (either "poisson" or
+            "gaussian").
+        bounds
+            The bounds on the parameters. This can either be a tuple of dictionaries, or
+            a dictionary of tuples (keyed by parameter names) to specify the lower and
+            upper bounds for each parameter.
+        jaxopt_kwargs
+            Any keyword arguments passed to ``jaxopt.ScipyBoundedMinimize``.
         **data
-            Passed through to the objective function
+            Passed through to the objective function.
 
-        Returns
-        -------
-        jaxopt_result : TODO
-            TODO
         """
         import numpy as np
 
@@ -338,21 +412,21 @@ class OrbitModelBase:
         vals, treedef = jax.tree_util.tree_flatten(params0)
         params0 = treedef.unflatten([np.array(x, dtype=np.float64) for x in vals])
 
+        jaxopt_kwargs.setdefault("method", "L-BFGS-B")
+        optimizer = jaxopt.ScipyBoundedMinimize(
+            fun=getattr(self, f"objective_{objective}"),
+            **jaxopt_kwargs,
+        )
+
         if bounds is not None:
             # Detect packed bounds (a single dict):
             if isinstance(bounds, dict):
                 bounds = self.unpack_bounds(bounds)
 
-            jaxopt_kwargs.setdefault("method", "L-BFGS-B")
-            optimizer = jaxopt.ScipyBoundedMinimize(
-                fun=self.objective,
-                **jaxopt_kwargs,
-            )
             res = optimizer.run(init_params=params0, bounds=bounds, **data)
 
         else:
-            jaxopt_kwargs.setdefault("method", "BFGS")
-            raise NotImplementedError("TODO")
+            res = optimizer.run(init_params=params0, **data)
 
         # warn if optimization was not successful, set state if successful
         if not res.state.success:
@@ -364,7 +438,7 @@ class OrbitModelBase:
         return res
 
     @classmethod
-    def unpack_bounds(cls, bounds):
+    def unpack_bounds(cls, bounds: dict) -> tuple[dict]:
         """
         Split a bounds dictionary that is specified like: {"key": (lower, upper)} into
         two bounds dictionaries for the lower and upper bounds separately, e.g., for the
@@ -390,10 +464,10 @@ class OrbitModelBase:
 
         return bounds_l, bounds_r
 
-    def check_e_funcs(self, e_params, r_e_max=1.0):
+    def check_e_funcs(self, e_params: dict, r_e_max: float):
         """
-        Check that the parameter values and functions used for the e_m(r_z') functions
-        are valid given the condition that d(r_z)/d(r_z') > 0.
+        Check that the parameter values and functions used for the e functions
+        are valid given the condition that d(r)/d(r_e) > 0.
         """
         import numpy as np
 
@@ -431,11 +505,17 @@ class OrbitModelBase:
         # This condition has to be met such that d(r_z)/d(r_z') > 0 at all theta_z':
         return np.all(checks > -1), checks
 
-    def get_crlb(self, params, data, inv=False):
+    def get_crlb(
+        self,
+        params: dict[str, dict | npt.ArrayLike],
+        data: dict[str, npt.ArrayLike],
+        inv: bool = False,
+    ) -> npt.NDArray:
         """
-        EXPERIMENTAL
+        Returns the Cramer-Rao lower bound matrix for the parameters evaluated at the
+        input parameter values.
 
-        Returns the Cramer-Rao lower bound matrix (inverse of the Fisher information)
+        To instead return the Fisher information matrix, specify ``inv=True``.
         """
         import numpy as np
 
@@ -462,11 +542,14 @@ class OrbitModelBase:
 
         return fisher_inv
 
-    def error_propagate_uncertainty(self, params, data):
+    def get_crlb_uncertainties(
+        self,
+        params: dict[str, dict | npt.ArrayLike],
+        data: dict[str, npt.ArrayLike],
+    ) -> dict[str, dict | npt.ArrayLike]:
         """
-        EXPERIMENTAL
-
-        Propagate uncertainty using the Fisher information matrix.
+        Compute the uncertainties on the parameters using the diagonal of the Cramer-Rao
+        lower bound matrix (see :meth:`get_crlb`).
         """
         import numpy as np
 
@@ -487,8 +570,17 @@ class OrbitModelBase:
         return jax.tree_util.tree_unflatten(treedef, arrs)
 
     def get_crlb_error_samples(
-        self, params, data, size=1, seed=None, list_of_samples=True
-    ):
+        self,
+        params: dict[str, dict | npt.ArrayLike],
+        data: dict[str, npt.ArrayLike],
+        size: int = 1,
+        seed: Optional[int] = None,
+        list_of_samples: bool = True,
+    ) -> list[dict] | dict[str, dict | npt.ArrayLike]:
+        """
+        Generate Gaussian samples of parameter values centered on the input parameter
+        values with covariance matrix set by the Cramer-Rao lower bound matrix.
+        """
         import numpy as np
 
         treedef = jax.tree_util.tree_structure(params)
@@ -525,287 +617,3 @@ class OrbitModelBase:
             return samples
         else:
             return jax.tree_util.tree_unflatten(treedef, arrs)
-
-
-class DensityOrbitModel(OrbitModelBase):
-    _objective_func = "ln_poisson_likelihood"
-
-    def __init__(
-        self,
-        ln_dens_func,
-        e_funcs=None,
-        regularization_func=None,
-        unit_sys=galactic,
-        Bisection_kwargs=None,
-    ):
-        """
-        {intro}
-
-        Parameters
-        ----------
-        ln_dens_func : callable (optional)
-            TODO
-        {params}
-        """
-        super().__init__(
-            e_funcs=e_funcs,
-            regularization_func=regularization_func,
-            unit_sys=unit_sys,
-            Bisection_kwargs=Bisection_kwargs,
-        )
-        self.ln_dens_func = jax.jit(ln_dens_func)
-
-    __init__.__doc__ = __init__.__doc__.format(
-        intro=OrbitModelBase.__init__.__doc__.split("Parameters")[0].rstrip(),
-        params=OrbitModelBase.__init__.__doc__.split("----------")[1].lstrip(),
-    )
-
-    @u.quantity_input
-    def estimate_Omega0(self, pos: u.kpc, vel: u.km / u.s):
-        """
-        Estimate the asymptotic frequency and zero-points
-
-        Parameters
-        ----------
-        pos : quantity-like or array-like
-        vel : quantity-like or array-like
-        """
-        import numpy as np
-
-        x = pos.decompose(self.unit_sys).value
-        v = vel.decompose(self.unit_sys).value
-
-        std_z = 1.5 * MAD(x, ignore_nan=True)
-        std_vz = 1.5 * MAD(v, ignore_nan=True)
-        nu = std_vz / std_z
-
-        pars0 = {
-            "pos0": np.nanmedian(x),
-            "vel0": np.nanmedian(v),
-            "ln_Omega0": np.log(nu),
-        }
-        return pars0
-
-    @u.quantity_input
-    def _estimate_data_ln_dens_func(
-        self, pos: u.kpc, vel: u.km / u.s, pars0=None, N_r_bins=25, spl_k=3
-    ):
-        """
-        Return a function to compute the log-density of the data
-
-        Parameters
-        ----------
-        pos : quantity-like or array-like
-        vel : quantity-like or array-like
-        """
-        import numpy as np
-
-        if pars0 is None:
-            pars0 = self.estimate_Omega0(pos, vel)
-
-        x = pos.decompose(self.unit_sys).value
-        v = vel.decompose(self.unit_sys).value
-
-        r_e, _ = self.get_elliptical_coords(x, v, pars0)
-
-        max_rz = np.nanpercentile(r_e, 99.5)
-        rz_bins = np.linspace(0, max_rz, N_r_bins)
-        dens_H, xe = np.histogram(r_e, bins=rz_bins)
-        xc = 0.5 * (xe[:-1] + xe[1:])
-        ln_dens = np.log(dens_H) - np.log(2 * np.pi * xc * (xe[1:] - xe[:-1]))
-
-        # TODO: WTF - this is a total hack -- why is this needed???
-        ln_dens = ln_dens - 8.6
-
-        spl = sci.InterpolatedUnivariateSpline(xc, ln_dens, k=spl_k)
-        return xc, ln_dens, spl
-
-    @u.quantity_input
-    def get_params_init(self, pos: u.kpc, vel: u.km / u.s, ln_dens_params0=None):
-        """
-        Estimate initial model parameters from the data
-
-        Parameters
-        ----------
-        pos : quantity-like or array-like
-        vel : quantity-like or array-like
-        ln_dens_params0 : dict (optional)
-        """
-        import numpy as np
-
-        pars0 = self.estimate_Omega0(pos, vel)
-        xx, yy, ln_dens_spl = self._estimate_data_ln_dens_func(pos, vel, pars0)
-
-        if ln_dens_params0 is not None:
-            # Fit the specified ln_dens_func to the measured densities
-            # This is a BAG O' HACKS!
-            xeval = np.geomspace(1e-3, np.nanmax(xx), 32)  # MAGIC NUMBER:
-
-            def obj(params, x, data_y):
-                model_y = self.ln_dens_func(x, **params)
-                return jnp.sum((model_y - data_y) ** 2)
-
-            optim = jaxopt.ScipyMinimize(fun=obj, method="BFGS")
-            res = optim.run(
-                init_params=ln_dens_params0, x=xeval, data_y=ln_dens_spl(xeval)
-            )
-            if res.state.success:
-                pars0["ln_dens_params"] = res.params
-            else:
-                warn(
-                    "Initial parameter estimation failed: Failed to estimate "
-                    "parameters of log-density function `ln_dens_func()`",
-                    RuntimeWarning,
-                )
-
-        return pars0
-
-    @partial(jax.jit, static_argnames=["self"])
-    def get_ln_dens(self, r, params):
-        return self.ln_dens_func(r, **params["ln_dens_params"])
-
-    @partial(jax.jit, static_argnames=["self"])
-    def ln_density(self, pos, vel, params):
-        r_e, th_e = self.get_elliptical_coords(pos, vel, params)
-        r = self.get_r(r_e, th_e, params["e_params"])
-        return self.get_ln_dens(r, params)
-
-    @partial(jax.jit, static_argnames=["self"])
-    def ln_poisson_likelihood(self, params, pos, vel, dens):
-        # Expected number:
-        ln_Lambda = self.ln_density(pos, vel, params)
-
-        # gammaln(x+1) = log(factorial(x))
-        return (dens * ln_Lambda - jnp.exp(ln_Lambda) - gammaln(dens + 1)).sum()
-
-
-class LabelOrbitModel(OrbitModelBase):
-    _objective_func = "ln_label_likelihood"
-
-    def __init__(
-        self,
-        label_func,
-        e_funcs=None,
-        regularization_func=None,
-        unit_sys=galactic,
-        Bisection_kwargs=None,
-    ):
-        """
-        {intro}
-
-        Parameters
-        ----------
-        label_func : callable (optional)
-            TODO
-        {params}
-        """
-        super().__init__(
-            e_funcs=e_funcs,
-            regularization_func=regularization_func,
-            unit_sys=unit_sys,
-            Bisection_kwargs=Bisection_kwargs,
-        )
-        self.label_func = jax.jit(label_func)
-
-    __init__.__doc__ = __init__.__doc__.format(
-        intro=OrbitModelBase.__init__.__doc__.split("Parameters")[0].rstrip(),
-        params=OrbitModelBase.__init__.__doc__.split("----------")[1].lstrip(),
-    )
-
-    @u.quantity_input
-    def get_params_init(self, pos: u.kpc, vel: u.km / u.s, label, label_params0=None):
-        """
-        Estimate initial model parameters from the data
-
-        Parameters
-        ----------
-        pos : quantity-like or array-like
-        vel : quantity-like or array-like
-        label : array-like
-
-        """
-        import numpy as np
-        import scipy.interpolate as sci
-
-        x = pos.decompose(self.unit_sys).value
-        v = vel.decompose(self.unit_sys).value
-
-        # First, estimate nu0 with some crazy bullshit:
-        med_stat = np.nanpercentile(label, 15)
-
-        fac = 0.02  # MAGIC NUMBER
-        for _ in range(16):  # max number of iterations
-            annulus_idx = np.abs(label.ravel() - med_stat) < fac * np.abs(med_stat)
-            if annulus_idx.sum() < 0.05 * len(annulus_idx):  # MAGIC NUMBER
-                fac *= 2
-            else:
-                break
-
-        else:
-            raise ValueError("Shit!")
-
-        vvv = np.abs(v.ravel()[annulus_idx])
-        zzz = np.abs(x.ravel()[annulus_idx])
-        v_z0 = np.median(vvv[zzz < 0.2 * np.median(zzz)])  # MAGIC NUMBER 0.2
-        z_v0 = np.median(zzz[vvv < 0.2 * np.median(vvv)])  # MAGIC NUMBER 0.2
-        nu = v_z0 / z_v0
-
-        pars0 = {
-            "pos0": np.nanmedian(x),
-            "vel0": np.nanmedian(v),
-            "ln_Omega0": np.log(nu),
-        }
-        r_e, _ = self.get_elliptical_coords(x, v, pars0)
-
-        if label_params0 is not None:
-            # Now estimate the label function spline values, again, with some craycray:
-            bins = np.linspace(0, 1.0, 9) ** 2  # TODO: arbitrary bin max = 1
-            stat = binned_statistic(
-                r_e.ravel(), label.ravel(), bins=bins, statistic=np.nanmedian
-            )
-            xc = 0.5 * (stat.bin_edges[:-1] + stat.bin_edges[1:])
-
-            # Fit the specified ln_dens_func to the measured densities
-            # This is a BAG O' HACKS!
-            spl = sci.InterpolatedUnivariateSpline(
-                xc[np.isfinite(stat.statistic)],
-                stat.statistic[np.isfinite(stat.statistic)],
-                k=1,
-            )
-            xeval = np.geomspace(1e-3, np.nanmax(xc), 32)  # MAGIC NUMBER:
-
-            def obj(params, x, data_y):
-                model_y = self.label_func(x, **params)
-                return jnp.sum((model_y - data_y) ** 2)
-
-            optim = jaxopt.ScipyMinimize(fun=obj, method="BFGS")
-            res = optim.run(init_params=label_params0, x=xeval, data_y=spl(xeval))
-            if res.state.success:
-                pars0["label_params"] = res.params
-            else:
-                warn(
-                    "Initial parameter estimation failed: Failed to estimate "
-                    "parameters of label function `label_func()`",
-                    RuntimeWarning,
-                )
-
-        return pars0
-
-    @partial(jax.jit, static_argnames=["self"])
-    def get_label(self, r, params):
-        return self.label_func(r, **params["label_params"])
-
-    @partial(jax.jit, static_argnames=["self"])
-    def label(self, pos, vel, params):
-        r_e, th_e = self.get_elliptical_coords(pos, vel, params)
-        r = self.get_r(r_e, th_e, params["e_params"])
-        return self.get_label(r, params)
-
-    @partial(jax.jit, static_argnames=["self"])
-    def ln_label_likelihood(self, params, pos, vel, label, label_err):
-        r_e, th_e = self.get_elliptical_coords(pos, vel, params)
-        r = self.get_r(r_e, th_e, params["e_params"])
-        model_label = self.get_label(r, params)
-
-        # log of a gaussian
-        return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
