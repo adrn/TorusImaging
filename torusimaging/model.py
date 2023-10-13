@@ -11,6 +11,7 @@ import numpy.typing as npt
 from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
 from jaxopt import Bisection
+from jaxopt.base import OptStep
 
 from torusimaging.jax_helpers import simpson
 
@@ -18,9 +19,7 @@ __all__ = ["TorusImaging1D"]
 
 
 class TorusImaging1D:
-    def __init__(
-        self, label_func, e_funcs, regularization_func=None, unit_sys=galactic
-    ):
+    def __init__(self, label_func, e_funcs, regularization_func=None, units=galactic):
         r"""
         This inherently assumes that you are working in a 1D phase space with position
         coordinate ``x`` and velocity coordinate ``v``.
@@ -52,9 +51,10 @@ class TorusImaging1D:
             `jax.jit()`. The first argument of each of these functions should be the
             elliptical radius :math:`r_e` or ``re``.
         regularization_func : callable (optional)
+            TODO: describe
             An optional function that computes a regularization term to add to the
             objective function when optimizing.
-        unit_sys : `gala.units.UnitSystem` (optional)
+        units : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
             from Gala: (kpc, Myr, Msun, radian).
 
@@ -63,7 +63,7 @@ class TorusImaging1D:
         self.e_funcs = {int(m): jax.jit(e_func) for m, e_func in e_funcs.items()}
 
         # Unit system:
-        self.unit_sys = UnitSystem(unit_sys)
+        self.units = UnitSystem(units)
 
         if regularization_func is None:
             regularization_func = lambda *_, **__: 0.0  # noqa
@@ -192,7 +192,7 @@ class TorusImaging1D:
         """
         Compute the velocity given the distorted radius and elliptical angle
         """
-        rzp = self._get_r_e(r, theta_e, params["e_params"])
+        rzp = self._get_r_e(r, theta_e, params["e_params"], Bisection_kwargs)
         return rzp * jnp.cos(theta_e) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
 
     @partial(jax.jit, static_argnames=["self"])
@@ -264,14 +264,14 @@ class TorusImaging1D:
         params : dict
         """
 
-        x = pos.decompose(self.unit_sys).value
-        v = vel.decompose(self.unit_sys).value
+        x = pos.decompose(self.units).value
+        v = vel.decompose(self.units).value
         re, te = self._get_elliptical_coords(x, v, params)
         return (
             re
-            * self.unit_sys["length"]
-            / (self.unit_sys["angle"] ** 0.5 / self.unit_sys["time"] ** 0.5),
-            te * self.unit_sys["angle"],
+            * self.units["length"]
+            / (self.units["angle"] ** 0.5 / self.units["time"] ** 0.5),
+            te * self.units["angle"],
         )
 
     @u.quantity_input
@@ -289,15 +289,15 @@ class TorusImaging1D:
         params : dict
         N_grid : int (optional)
         """
-        x = pos.decompose(self.unit_sys).value
-        v = vel.decompose(self.unit_sys).value
+        x = pos.decompose(self.units).value
+        v = vel.decompose(self.units).value
         T, J, th = self._get_T_J_theta(x, v, params, N_grid, Bisection_kwargs)
 
         tbl = at.QTable()
-        tbl["T"] = T * self.unit_sys["time"]
+        tbl["T"] = T * self.units["time"]
         tbl["Omega"] = 2 * jnp.pi * u.rad / tbl["T"]
-        tbl["J"] = J * self.unit_sys["length"] ** 2 / self.unit_sys["time"]
-        tbl["theta"] = th * self.unit_sys["angle"]
+        tbl["J"] = J * self.units["length"] ** 2 / self.units["time"]
+        tbl["theta"] = th * self.units["angle"]
 
         return tbl
 
@@ -312,7 +312,7 @@ class TorusImaging1D:
         pos : `astropy.units.Quantity`
         params : dict
         """
-        x = jnp.atleast_1d(pos.decompose(self.unit_sys).value)
+        x = jnp.atleast_1d(pos.decompose(self.units).value)
         in_shape = x.shape
         x = x.ravel()
 
@@ -343,7 +343,13 @@ class TorusImaging1D:
         )
         res = -(Om**2) * x * numer / denom
 
-        return res.reshape(in_shape) * self.unit_sys["acceleration"]
+        return res.reshape(in_shape) * self.units["acceleration"]
+
+    @u.quantity_input
+    def get_label(self, pos: u.kpc, vel: u.km / u.s, params):
+        x = pos.decompose(self.units).value
+        v = vel.decompose(self.units).value
+        return self._get_label(x.ravel(), v.ravel(), params).reshape(x.shape)
 
     @partial(jax.jit, static_argnames=["self"])
     def ln_poisson_likelihood(self, params, pos, vel, counts):
@@ -355,18 +361,18 @@ class TorusImaging1D:
 
     @partial(jax.jit, static_argnames=["self"])
     def ln_gaussian_likelihood(self, params, pos, vel, label, label_err):
-        model_label = self._get_label(pos, vel, **params)
+        model_label = self._get_label(pos, vel, params)
         return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
 
     @partial(jax.jit, static_argnames=["self"])
     def objective_poisson(self, params, pos, vel, counts):
         f_val = self.ln_poisson_likelihood(params, pos, vel, counts)
-        return -(f_val - self.regularization_func(params)) / pos.size
+        return -(f_val - self.regularization_func(self, params)) / pos.size
 
     @partial(jax.jit, static_argnames=["self"])
     def objective_gaussian(self, params, pos, vel, label, label_err):
         f_val = self.ln_gaussian_likelihood(params, pos, vel, label, label_err)
-        return -(f_val - self.regularization_func(params)) / pos.size
+        return -(f_val - self.regularization_func(self, params)) / pos.size
 
     def optimize(
         self,
@@ -375,7 +381,7 @@ class TorusImaging1D:
         bounds: Optional[tuple[dict]] = None,
         jaxopt_kwargs: Optional[dict] = None,
         **data: npt.ArrayLike,
-    ) -> jaxopt.base.OptStep:
+    ) -> OptStep:
         """
         Optimize the model parameters given the input data using
         `jaxopt.ScipyboundedMinimize`.
@@ -523,7 +529,7 @@ class TorusImaging1D:
                 i += size
             params = jax.tree_util.tree_unflatten(treedef, arrs)
             ll = getattr(self, self._objective_func)(params, **data)
-            return -(ll - self.regularization_func(params))
+            return -(ll - self.regularization_func(self, params))
 
         flattened = jax.tree_util.tree_flatten(params)[0]
         sizes = [x.size for x in flattened]

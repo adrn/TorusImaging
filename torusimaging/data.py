@@ -1,5 +1,10 @@
+from typing import Optional
+
 import astropy.units as u
 import numpy as np
+import numpy.typing as npt
+from astropy.stats import median_absolute_deviation as MAD
+from gala.units import UnitSystem
 from scipy.stats import binned_statistic_2d
 
 __all__ = ["get_binned_counts", "get_binned_label"]
@@ -25,7 +30,12 @@ def _get_arr(x, units):
 
 
 @u.quantity_input
-def get_binned_counts(pos: u.kpc, vel: u.km / u.s, bins, units=None):
+def get_binned_counts(
+    pos: u.Quantity[u.kpc],
+    vel: u.Quantity[u.km / u.s],
+    bins: dict | tuple,
+    units: Optional[UnitSystem] = None,
+):
     """
     Parameters
     ----------
@@ -34,6 +44,14 @@ def get_binned_counts(pos: u.kpc, vel: u.km / u.s, bins, units=None):
     bins : tuple, dict
         A specification of the bins. This can either be a tuple, where the order
         is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
+    units : UnitSystem (optional)
+        The unit system to work in.
+
+    Returns
+    -------
+    binned_data : dict
+        Keys are "pos", "vel", "counts", "label", where label is the natural log of the
+        counts.
     """
 
     pos = _get_arr(pos, units)
@@ -49,9 +67,12 @@ def get_binned_counts(pos: u.kpc, vel: u.km / u.s, bins, units=None):
     xc, yc = np.meshgrid(xc, yc)
 
     return {
-        "pos": xc,
-        "vel": yc,
+        "pos": xc * units["length"],
+        "vel": yc * units["length"] / units["time"],
         "counts": H.T,
+        "label": np.log(
+            H.T
+        ),  # TODO: document that label is log(counts) for density model
     }
 
 
@@ -91,14 +112,14 @@ def _infer_intrinsic_scatter(y, y_err, nan_safe=False):
 
 @u.quantity_input
 def get_binned_label(
-    pos: u.kpc,
-    vel: u.km / u.s,
-    label,
-    bins,
-    label_err=None,
-    units=None,
-    s=None,
-    s_N_thresh=128,
+    pos: u.Quantity[u.kpc],
+    vel: u.Quantity[u.km / u.s],
+    label: npt.ArrayLike,
+    bins: dict | tuple,
+    label_err: Optional[npt.ArrayLike] = None,
+    units: Optional[UnitSystem] = None,
+    s: Optional[float] = None,
+    s_N_thresh: Optional[int] = 128,
 ):
     """
 
@@ -108,9 +129,26 @@ def get_binned_label(
 
     Parameters
     ----------
+    pos : quantity-like
+    vel : quantity-like
+    label : array-like
     bins : tuple, dict
         A specification of the bins. This can either be a tuple, where the order
         is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
+    label_err : array-like
+    units : UnitSystem (optional)
+        The unit system to work in.
+    s : float (optional)
+        The intrinsic scatter of label values within each pixel. If not provided,
+        this will be estimated from the data.
+    s_N_thresh : int (optional)
+        If the intrinsic scatter ``s`` is not specified, this sets the threshold for the
+        number of objects per bin required to estimate the intrinsic scatter.
+
+    Returns
+    -------
+    binned_data : dict
+        Keys are "pos", "vel", "counts", "label", and "label_err".
     """
     pre_err_state = np.geterr()
     np.seterr(divide="ignore", invalid="ignore")
@@ -124,8 +162,8 @@ def get_binned_label(
     xc, yc = np.meshgrid(xc, yc)
 
     binned = {
-        "pos": xc,
-        "vel": yc,
+        "pos": xc * units["length"],
+        "vel": yc * units["length"] / units["time"],
     }
 
     # For bin numbers and other stuff below:
@@ -146,10 +184,12 @@ def get_binned_label(
             s = np.nanmean(std_stat.statistic[counts > s_N_thresh])
 
     if s is None:
-        # Label errors providd, but no intrinsic scatter provided - need to estimate
+        # Label errors provided, but no intrinsic scatter provided - need to estimate
         # this for bins with many objects
-        high_N_bins = np.stack(np.where(counts > 128)) + 1
-        high_N_bins = high_N_bins[:, np.argsort(counts[np.where(counts > 128)])[::-1]]
+        high_N_bins = np.stack(np.where(counts > s_N_thresh)) + 1
+        high_N_bins = high_N_bins[
+            :, np.argsort(counts[np.where(counts > s_N_thresh)])[::-1]
+        ]
         high_N_bins = high_N_bins[:, np.any(high_N_bins != 1, axis=0)]
 
         # TODO: magic number - this limits to a subset of the 16 most populated bins
@@ -195,8 +235,25 @@ def get_binned_label(
     binned["label"] = mean.T
     binned["label_err"] = np.sqrt(mean_err**2 + s**2 / counts).T
     binned["label_err"][~np.isfinite(binned["label_err"])] = np.nan
-    binned["s"] = s
+    # binned["s"] = s
 
     np.seterr(**pre_err_state)
 
     return binned
+
+
+def estimate_Omega(binned_data):
+    # TODO: percentile values are hard-coded and arbitrary
+    inner_mask = (
+        np.abs(binned_data["pos"]) < np.nanpercentile(np.abs(binned_data["pos"]), 15)
+    ) & (np.abs(binned_data["vel"]) < np.nanpercentile(np.abs(binned_data["vel"]), 15))
+    inner_label_val = np.nanmean(binned_data["label"][inner_mask])
+
+    diff = np.abs(binned_data["label"] - inner_label_val)
+
+    ell_mask = diff < np.nanpercentile(diff, 15)
+    tmpv = binned_data["vel"][ell_mask]
+    tmpz = binned_data["pos"][ell_mask]
+    init_Omega = MAD(tmpv) / MAD(tmpz)
+
+    return init_Omega * u.rad

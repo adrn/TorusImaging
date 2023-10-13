@@ -9,7 +9,6 @@ def plot_data_models_residual(
     model,
     params_fit,
     params_init=None,
-    label_name="counts",
     smooth_residual=None,
     vlim_residual=0.3,
     fractional_residual=True,
@@ -32,27 +31,22 @@ def plot_data_models_residual(
         ``vmin=-vlim_residual`` and ``vmax=vlim_residual``.
     """
     if usys is None:
-        usys = model.unit_sys
+        usys = model.units
 
     bd = {
         k: v.decompose(usys).value if hasattr(v, "unit") else v
         for k, v in binned_data.items()
     }
 
-    if label_name == "counts":
-        vlim = dict(norm=mpl.colors.LogNorm(vmin=0.5), shading="auto")
-
-        def model_func(*args, **kwargs):
-            return np.exp(model.ln_density(*args, **kwargs))
-
-    else:
-        vlim = dict(
-            norm=mpl.colors.Normalize(
-                *np.nanpercentile(binned_data[label_name], [1, 99])
-            ),
-            shading="auto",
-        )
-        model_func = model.label
+    vlim = dict(
+        norm=mpl.colors.Normalize(
+            *np.percentile(
+                binned_data["label"][np.isfinite(binned_data["label"])], [1, 99]
+            )
+        ),
+        shading="auto",
+    )
+    model_func = model._get_label
 
     ncols = 3
     if params_init is not None:
@@ -67,7 +61,7 @@ def plot_data_models_residual(
         constrained_layout=True,
     )
 
-    cs = axes[0].pcolormesh(bd["vel"], bd["pos"], bd[label_name], **vlim)
+    cs = axes[0].pcolormesh(bd["vel"], bd["pos"], bd["label"], **vlim)
 
     i = 1
 
@@ -84,9 +78,9 @@ def plot_data_models_residual(
 
     # Residual:
     if fractional_residual:
-        resid = np.array((bd[label_name] - model_H) / model_H)
+        resid = np.array((bd["label"] - model_H) / model_H)
     else:
-        resid = np.array((bd[label_name] - model_H))
+        resid = np.array((bd["label"] - model_H))
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
 
