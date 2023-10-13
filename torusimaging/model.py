@@ -617,3 +617,88 @@ class TorusImaging1D:
             return samples
         else:
             return jax.tree_util.tree_unflatten(treedef, arrs)
+
+    def mcmc_run_label(
+        self,
+        binned_data,
+        p0,
+        bounds,
+        rng_seed=0,
+        num_steps=1000,
+        num_warmup=1000,
+    ):
+        """
+        EXPERIMENTAL
+
+        Currently only supports uniform priors on all parameters, specified by the input
+        bounds.
+        """
+        import blackjax
+        import numpy as np
+
+        # First check that objective evaluates to a finite value:
+        mask = (
+            np.isfinite(binned_data["label"])
+            & np.isfinite(binned_data["label_err"])
+            & (binned_data["label_err"] > 0)
+        )
+        data = dict(
+            pos=binned_data["pos"].decompose(self.units).value[mask],
+            vel=binned_data["vel"].decompose(self.units).value[mask],
+            label=binned_data["label"][mask],
+            label_err=binned_data["label_err"][mask],
+        )
+        test_val = self.objective_gaussian(p0, **data)
+        if not np.isfinite(test_val):
+            raise RuntimeError("Objective function evaluated to non-finite value")
+
+        lb, ub = self.unpack_bounds(bounds)
+        lb_arrs = jax.tree_util.tree_flatten(lb)[0]
+        ub_arrs = jax.tree_util.tree_flatten(ub)[0]
+
+        def logprob(p):
+            lp = 0.0
+            pars, _ = jax.tree_util.tree_flatten(p)
+            for i in range(len(pars)):
+                lp += jnp.where(
+                    jnp.any(pars[i] < lb_arrs[i]) | jnp.any(pars[i] > ub_arrs[i]),
+                    -jnp.inf,
+                    0.0,
+                )
+
+            lp += self.ln_gaussian_likelihood(p, **data)
+
+            lp -= self.regularization_func(self, p)
+
+            return lp
+
+        rng_key = jax.random.PRNGKey(rng_seed)
+        warmup = blackjax.window_adaptation(blackjax.nuts, logprob)
+        (state, parameters), _ = warmup.run(rng_key, p0, num_steps=num_warmup)
+
+        kernel = blackjax.nuts(logprob, **parameters).step
+        states = inference_loop(rng_key, kernel, state, num_steps)
+
+        # Get the pytree structure of a single sample based on the starting point:
+        treedef = jax.tree_util.tree_structure(p0)
+        arrs, _ = jax.tree_util.tree_flatten(states.position)
+
+        mcmc_samples = []
+        for n in range(arrs[0].shape[0]):
+            mcmc_samples.append(
+                jax.tree_util.tree_unflatten(treedef, [arr[n] for arr in arrs])
+            )
+
+        return states, mcmc_samples
+
+
+def inference_loop(rng_key, kernel, initial_state, num_samples):
+    @jax.jit
+    def one_step(state, rng_key):
+        state, _ = kernel(rng_key, state)
+        return state, state
+
+    keys = jax.random.split(rng_key, num_samples)
+    _, states = jax.lax.scan(one_step, initial_state, keys)
+
+    return states
