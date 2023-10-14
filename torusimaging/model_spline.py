@@ -102,6 +102,18 @@ class TorusImaging1DSpline(TorusImaging1D):
 
         super().__init__(label_func, e_funcs, regularization_func, units)
 
+    def __reduce__(self):
+        return (
+            self.__class__,
+            (
+                self._label_knots,
+                self._e_knots,
+                self._e_signs,
+                self.regularization_func,
+                self.units,
+            ),
+        )
+
     @classmethod
     def auto_init(
         cls,
