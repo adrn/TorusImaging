@@ -231,7 +231,7 @@ def get_binned_label(
         mean = stat_mean1.statistic / stat_mean2.statistic
         mean_err = np.sqrt(1 / stat_mean2.statistic)
 
-    binned["counts"] = counts
+    binned["counts"] = counts.T
     binned["label"] = mean.T
     binned["label_err"] = np.sqrt(mean_err**2 + s**2 / counts).T
     binned["label_err"][~np.isfinite(binned["label_err"])] = np.nan
