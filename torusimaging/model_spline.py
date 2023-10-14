@@ -123,6 +123,8 @@ class TorusImaging1DSpline(TorusImaging1D):
         e_signs: Optional[dict[int, float | int]] = None,
         regularization_func: Optional[Callable | bool] = None,
         units: UnitSystem = galactic,
+        label_knots_spacing_power: float = 1.0,
+        e_knots_spacing_power: float = 1.0,
         **kwargs,
     ):
         """
@@ -184,7 +186,9 @@ class TorusImaging1DSpline(TorusImaging1D):
         label_knots = np.array(label_knots)
         if label_knots.ndim == 0:
             # Integer passed in, so we need to generate the knots:
-            label_knots = np.linspace(0, re_max, label_knots)
+            label_knots = np.linspace(
+                0, re_max**label_knots_spacing_power, label_knots
+            ) ** (1 / label_knots_spacing_power)
         label_n_knots = len(label_knots)
 
         # Set up reasonable bounds for spline parameters - this estimates the slope of
@@ -239,7 +243,9 @@ class TorusImaging1DSpline(TorusImaging1D):
         for m, knots in e_knots.items():
             if knots.ndim == 0:
                 # Integer passed in, so we need to generate the knots:
-                e_knots[m] = np.linspace(0, re_max, knots)
+                e_knots[m] = np.linspace(0, re_max**e_knots_spacing_power, knots) ** (
+                    1 / e_knots_spacing_power
+                )
         e_n_knots = {m: len(knots) for m, knots in e_knots.items()}
 
         if e_signs is None:
