@@ -509,6 +509,7 @@ class TorusImaging1D:
         self,
         params: dict[str, dict | npt.ArrayLike],
         data: dict[str, npt.ArrayLike],
+        objective: str = "gaussian",
         inv: bool = False,
     ) -> npt.NDArray:
         """
@@ -528,7 +529,7 @@ class TorusImaging1D:
                 arrs.append(jnp.array(flat_params[i : i + size]))
                 i += size
             params = jax.tree_util.tree_unflatten(treedef, arrs)
-            ll = getattr(self, self._objective_func)(params, **data)
+            ll = getattr(self, f"ln_{objective}_likelihood")(params, **data)
             return -(ll - self.regularization_func(self, params))
 
         flattened = jax.tree_util.tree_flatten(params)[0]
@@ -546,6 +547,7 @@ class TorusImaging1D:
         self,
         params: dict[str, dict | npt.ArrayLike],
         data: dict[str, npt.ArrayLike],
+        objective: str = "gaussian",
     ) -> dict[str, dict | npt.ArrayLike]:
         """
         Compute the uncertainties on the parameters using the diagonal of the Cramer-Rao
@@ -557,7 +559,7 @@ class TorusImaging1D:
         flattened = jax.tree_util.tree_flatten(params)[0]
         sizes = [x.size for x in flattened]
 
-        fisher_inv = self.get_crlb(params, data)
+        fisher_inv = self.get_crlb(params, data, objective=objective)
         diag = np.diag(fisher_inv).copy()
         diag[(diag < 0) | (diag > 1e18)] = 0.0
         flat_param_uncs = np.sqrt(diag)
@@ -573,6 +575,7 @@ class TorusImaging1D:
         self,
         params: dict[str, dict | npt.ArrayLike],
         data: dict[str, npt.ArrayLike],
+        objective: str = "gaussian",
         size: int = 1,
         seed: Optional[int] = None,
         list_of_samples: bool = True,
@@ -588,7 +591,7 @@ class TorusImaging1D:
         sizes = [x.size for x in flattened]
         flat_params = np.concatenate([np.atleast_1d(x) for x in flattened])
 
-        crlb = self.get_crlb(params, data)
+        crlb = self.get_crlb(params, data, objective=objective)
         diag = np.diag(crlb)
         bad_idx = np.where((diag < 0) | (diag > 1e18))[0]
 
