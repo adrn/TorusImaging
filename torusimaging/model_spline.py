@@ -286,14 +286,16 @@ class TorusImaging1DSpline(TorusImaging1D):
             # specified as kwargs to this classmethod, as is the case for the default
             # function:
             sig = inspect.signature(regularization_func)
-            args = list(sig.parameters.keys())[2:]
+            arg_names = list(sig.parameters.keys())[2:]
+
             reg_kw = {}
-            for arg_name in args:
-                if arg_name not in kwargs:
+            for arg_name in arg_names:
+                p = sig.parameters[arg_name]
+                if arg_name not in kwargs and p.default is inspect._empty:
                     raise ValueError(
                         "The regularization function requires additional arguments: "
-                        f"{args!s}, which must be passed as keyword arguments to this "
-                        "class method"
+                        f"{arg_names!s}, which must be passed as keyword arguments to "
+                        "this class method"
                     )
                 reg_kw[arg_name] = kwargs[arg_name]
 
