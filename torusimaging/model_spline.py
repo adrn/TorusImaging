@@ -289,7 +289,7 @@ class TorusImaging1DSpline(TorusImaging1D):
                     )
                 reg_kw[arg_name] = kwargs[arg_name]
 
-            reg_func = partial(regularization_func_default, **reg_kw)
+            reg_func = partial(regularization_func, **reg_kw)
 
         # Initialize model instance:
         obj = cls(

@@ -242,10 +242,7 @@ class TorusImaging1D:
         """
         d_es = {}
         for m, pars in e_params.items():
-            # Workaround because of:
-            # https://github.com/google/jax/issues/7465
-            tmp = jax.vmap(partial(jax.grad(self.e_funcs[m], argnums=0), **pars), 0, 0)
-            d_es[m] = tmp(r_e)
+            d_es[m] = jax.grad(self.e_funcs[m], argnums=0)(r_e, **pars)
         return d_es
 
     # ---------------------------------------------------------------------------------
@@ -301,6 +298,36 @@ class TorusImaging1D:
 
         return tbl
 
+    @partial(jax.jit, static_argnames=["self"])
+    def _get_acc(self, pos, params):
+        r_e, _ = self._get_elliptical_coords(pos, 0.0, params)
+
+        Om = jnp.exp(params["ln_Omega0"])
+
+        es = self._get_es(r_e, params["e_params"])
+        de_dres = self._get_de_dr_es(r_e, params["e_params"])
+
+        numer = 1 + jnp.sum(
+            jnp.array(
+                [
+                    (-1) ** (m / 2) * (es[m] + de_dres[m] * r_e)
+                    for m in self.e_funcs.keys()
+                ]
+            )
+        )
+        denom = 1 + jnp.sum(
+            jnp.array(
+                [
+                    (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_dres[m] * r_e)
+                    for m in self.e_funcs.keys()
+                ]
+            )
+        )
+        return -(Om**2) * pos * numer / denom
+
+    _get_dacc_dpos = jax.grad(_get_acc, argnums=1)
+    _get_dacc_dpos_vmap = jax.vmap(_get_dacc_dpos, in_axes=(None, 0, None))
+
     @u.quantity_input
     def get_acceleration(self, pos: u.kpc, params):
         """
@@ -316,34 +343,27 @@ class TorusImaging1D:
         in_shape = x.shape
         x = x.ravel()
 
-        r_e, _ = self._get_elliptical_coords(x, jnp.zeros_like(x), params)
-
-        Om = jnp.exp(params["ln_Omega0"])
-
-        es = self._get_es(r_e, params["e_params"])
-        de_dres = self._get_de_dr_es(r_e, params["e_params"])
-
-        numer = 1 + jnp.sum(
-            jnp.array(
-                [
-                    (-1) ** (m / 2) * (es[m] + de_dres[m] * r_e)
-                    for m in self.e_funcs.keys()
-                ]
-            ),
-            axis=0,
-        )
-        denom = 1 + jnp.sum(
-            jnp.array(
-                [
-                    (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_dres[m] * r_e)
-                    for m in self.e_funcs.keys()
-                ]
-            ),
-            axis=0,
-        )
-        res = -(Om**2) * x * numer / denom
-
+        get_acc = jax.vmap(self._get_acc, in_axes=[0, None])
+        res = get_acc(x, params)
         return res.reshape(in_shape) * self.units["acceleration"]
+
+    @u.quantity_input
+    def get_acceleration_deriv(self, pos: u.kpc, params):
+        """
+        Compute the derivative of the acceleration with respect to position as a
+        function of position in the limit as velocity goes to zero
+
+        Parameters
+        ----------
+        pos : `astropy.units.Quantity`
+        params : dict
+        """
+        x = jnp.atleast_1d(pos.decompose(self.units).value)
+        in_shape = x.shape
+        x = x.ravel()
+
+        res = self._get_dacc_dpos_vmap(x, params)
+        return res.reshape(in_shape) * self.units["acceleration"] / self.units["length"]
 
     @u.quantity_input
     def get_label(self, pos: u.kpc, vel: u.km / u.s, params):
