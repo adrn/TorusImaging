@@ -117,6 +117,44 @@ def plot_data_models_residual(
     return fig, axes
 
 
+def plot_spline_functions(model, params):
+    r_e_grid = np.linspace(0, model._label_knots.max(), 128)
+    e_vals = model._get_es(r_e_grid, params["e_params"])
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5), layout="constrained")
+
+    ax = axes[0]
+    sum_ = None
+    for m, vals in e_vals.items():
+        (l,) = ax.plot(r_e_grid, vals, marker="", label=f"$e_{m}$")  # noqa
+        ax.scatter(
+            model._e_knots[m],
+            model.e_funcs[m](model._e_knots[m], params["e_params"][m]["vals"]),
+            color=l.get_color(),
+        )
+
+        if sum_ is None:
+            sum_ = vals
+        else:
+            sum_ += vals
+
+    ax.plot(r_e_grid, sum_, ls="--", marker="")
+    ax.set_title("$e_m$ functions")
+    ax.legend(loc="upper left", fontsize=10)
+    ax.set_xlabel("$r_e$")
+
+    ax = axes[1]
+    l_vals = model.label_func(r_e_grid, **params["label_params"])
+    (l,) = ax.plot(r_e_grid, l_vals, marker="")  # noqa
+
+    l_vals = model.label_func(model._label_knots, **params["label_params"])
+    ax.scatter(model._label_knots, l_vals, color=l.get_color())
+    ax.set_xlabel("$r$")
+    ax.set_title("Label function")
+
+    return fig, axes
+
+
 def plot_cov_ellipse(mean, cov, nstd=1, ax=None, **kwargs):
     def eigsorted(cov):
         vals, vecs = np.linalg.eigh(cov)
