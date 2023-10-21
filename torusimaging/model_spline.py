@@ -32,8 +32,16 @@ def regularization_func_default(
     label_smooth_sigma: float,
     e_l2_sigmas: dict,
     e_smooth_sigmas: dict,
+    dacc_dpos_scale: float = 1e-4,
+    dacc_strength: float = 100.0,
 ):
     p = 0.0
+
+    # Regularization
+    for m, func in model.e_funcs.items():
+        z_knots = model._e_knots[m][1:] / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+        daz = model._get_dacc_dpos_vmap(z_knots, params) / dacc_dpos_scale
+        p += jnp.sum(dacc_strength * jnp.log(1 + jnp.exp(daz)))
 
     # L2 regularization to keep the value of the functions small:
     for m, func in model.e_funcs.items():
