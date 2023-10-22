@@ -297,7 +297,7 @@ class TorusImaging1DSpline(TorusImaging1D):
                         f"{arg_names!s}, which must be passed as keyword arguments to "
                         "this class method"
                     )
-                reg_kw[arg_name] = kwargs[arg_name]
+                reg_kw[arg_name] = kwargs.get(arg_name, p.default)
 
             reg_func = partial(regularization_func, **reg_kw)
 
