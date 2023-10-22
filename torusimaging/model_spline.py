@@ -33,15 +33,17 @@ def regularization_func_default(
     e_l2_sigmas: dict,
     e_smooth_sigmas: dict,
     dacc_dpos_scale: float = 1e-4,
-    dacc_strength: float = 100.0,
+    dacc_strength: float = 1.0,
 ):
     p = 0.0
 
-    # Regularization
-    for m, func in model.e_funcs.items():
-        z_knots = model._e_knots[m][1:] / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
-        daz = model._get_dacc_dpos_vmap(z_knots, params) / dacc_dpos_scale
-        p += jnp.sum(dacc_strength * jnp.log(1 + jnp.exp(daz)))
+    if dacc_strength > 0:
+        # Soft rectifier regularization meant to keep d(acc)/d(pos) < 0
+        # (i.e. this tries to enforce positive density)
+        for m, func in model.e_funcs.items():
+            z_knots = model._e_knots[m][1:] / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+            daz = model._get_dacc_dpos_vmap(z_knots, params) / dacc_dpos_scale
+            p += dacc_strength * jnp.sum(jnp.log(1 + jnp.exp(daz)))
 
     # L2 regularization to keep the value of the functions small:
     for m, func in model.e_funcs.items():
@@ -133,6 +135,7 @@ class TorusImaging1DSpline(TorusImaging1D):
         units: UnitSystem = galactic,
         label_knots_spacing_power: float = 1.0,
         e_knots_spacing_power: float = 1.0,
+        re_max_factor=1.0,
         **kwargs,
     ):
         """
@@ -177,7 +180,7 @@ class TorusImaging1DSpline(TorusImaging1D):
 
         # First estimate r_e_max using the bin limits and estimated frequency:
         with u.set_enabled_equivalencies(u.dimensionless_angles()):
-            re_max = np.mean(
+            re_max = re_max_factor * np.mean(
                 [
                     (binned_data["pos"].max() * np.sqrt(init_Omega))
                     .decompose(units)
