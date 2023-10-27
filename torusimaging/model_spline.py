@@ -316,7 +316,7 @@ class TorusImaging1DSpline(TorusImaging1D):
         # Other parameter bounds:
         # Wide, physical bounds for the log-midplane density
         dens0_bounds = [0.001, 100] * u.Msun / u.pc**3
-        bounds["ln_Omega"] = 0.5 * np.log(
+        bounds["ln_Omega0"] = 0.5 * np.log(
             (4 * np.pi * G * dens0_bounds).decompose(units).value
         )
         bounds["pos0"] = ([-1.0, 1.0] * u.kpc).decompose(units).value
