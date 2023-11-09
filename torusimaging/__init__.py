@@ -5,6 +5,7 @@ except ImportError:
 
 from torusimaging.model import *  # noqa
 from torusimaging.model_spline import *  # noqa
+from torusimaging.model_diskhalo import *  # noqa
 
 from . import model_helpers, plot  # noqa
 from .data import *  # noqa
