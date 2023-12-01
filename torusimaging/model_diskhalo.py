@@ -17,20 +17,36 @@ def label_func(r, a, b):
     return a * r + b
 
 
-def e2_func(r_e, A, ln_B, ln_C):
-    """
-    This is from a symbolic regression fit to the expected e_m function sum for a
-    Miyamoto-Nagai disk embedded in an NFW halo with a constant circular velocity.
-    For mass `m`, scale height `b` in units of 1e10 Msun and kpc:
-    - A should be close to 1
-    - B is like 1.27 * np.sqrt(b) ~= 0.64 for b = 0.25
-    - C is like 0.79 / np.sqrt(m) ~= 0.3 for a ~6–7 x 10^10 Msun disk
+# def e2_func(r_e, A, ln_B, ln_C):
+#     """
+#     This is from a symbolic regression fit to the expected e_m function sum for a
+#     Miyamoto-Nagai disk embedded in an NFW halo with a constant circular velocity.
+#     For mass `m`, scale height `b` in units of 1e10 Msun and kpc:
+#     - A should be close to 1
+#     - B is like 1.27 * np.sqrt(b) ~= 0.64 for b = 0.25
+#     - C is like 0.79 / np.sqrt(m) ~= 0.3 for a ~6–7 x 10^10 Msun disk
 
-    See: Symbolic-regression-tests.ipynb
-    """
-    B = jnp.exp(ln_B)
-    C = jnp.exp(ln_C)
-    return A * jnp.exp(-B / jnp.sqrt(r_e) - C)
+#     See: Symbolic-regression-tests.ipynb
+#     """
+#     B = jnp.exp(ln_B)
+#     C = jnp.exp(ln_C)
+#     return A * jnp.exp(-B / jnp.sqrt(r_e) - C)
+
+
+def e2_func(r_e, ln_b, ln_m):
+    b = jnp.exp(ln_b)
+    m = jnp.exp(ln_m)
+    val = (
+        -0.8174305758200171
+        * jnp.log(
+            36.743526841029097 * b / m
+            - r_e
+            + 1.7748241828470024
+            + 0.8174305758200171 * 10.61181062960402 ** (-r_e) * b**2
+        )
+        - (b - 0.37361794441676788) / m
+    )
+    return val
 
 
 def em_func(r_e, a):
@@ -157,15 +173,20 @@ class TorusImaging1DDiskHalo(TorusImaging1D):
         for m, sign in e_signs.items():
             e_bounds[m] = {}
             if m == 2:
-                if sign > 0:
-                    e_bounds[m]["A"] = (0.0, 10.0)
-                else:
-                    e_bounds[m]["A"] = (-10.0, 0.0)
+                # if sign > 0:
+                #     e_bounds[m]["A"] = (0.0, 10.0)
+                # else:
+                #     e_bounds[m]["A"] = (-10.0, 0.0)
+
+                # b_lim = [0.02, 2.5]
+                # m_lim = [1.0, 20.0]
+                # e_bounds[m]["ln_B"] = np.sort(np.log(1.27 * np.sqrt(b_lim)))
+                # e_bounds[m]["ln_C"] = np.sort(np.log(0.79 / np.sqrt(m_lim)))
 
                 b_lim = [0.02, 2.5]
                 m_lim = [1.0, 20.0]
-                e_bounds[m]["ln_B"] = np.sort(np.log(1.27 * np.sqrt(b_lim)))
-                e_bounds[m]["ln_C"] = np.sort(np.log(0.79 / np.sqrt(m_lim)))
+                e_bounds[m]["ln_b"] = np.sort(np.log(b_lim))
+                e_bounds[m]["ln_m"] = np.sort(np.log(m_lim))
             else:
                 if sign > 0:
                     e_bounds[m]["a"] = (0, 0.5)
@@ -235,10 +256,14 @@ class TorusImaging1DDiskHalo(TorusImaging1D):
         p0["e_params"] = {}
         for m in self._e_terms:
             if m == 2:
+                # p0["e_params"][m] = {
+                #     "A": 1.0,
+                #     "ln_B": np.log(0.64),
+                #     "ln_C": np.log(0.3),
+                # }
                 p0["e_params"][m] = {
-                    "A": 1.0,
-                    "ln_B": np.log(0.64),
-                    "ln_C": np.log(0.3),
+                    "ln_b": np.log(0.25),
+                    "ln_m": np.log(6.8),
                 }
             else:
                 p0["e_params"][m] = {"a": 0.0}
