@@ -33,7 +33,7 @@ class TorusImaging1DEnergy:
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_label(self, pos, vel, params):
-        E = self._get_E(pos, vel, params)
+        E = self._get_E(pos - params["pos0"], vel - params["vel0"], params)
         return self.label_func(E, **params["label_params"])
 
     @partial(jax.jit, static_argnames=["self"])
