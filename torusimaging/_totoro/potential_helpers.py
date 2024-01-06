@@ -33,7 +33,6 @@ if HAS_AGAMA:
 
 
 def gala_to_agama_potential(potential):
-
     if not HAS_AGAMA:
         raise ImportError(
             "Failed to import agama: Converting a potential to an "

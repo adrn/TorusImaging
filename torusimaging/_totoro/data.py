@@ -8,7 +8,6 @@ from pyia import GaiaData
 
 
 class Dataset:
-
     _id_column = None
     _radial_velocity_name = None
     _elem_err_fmt = None
