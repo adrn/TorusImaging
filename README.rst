@@ -30,14 +30,16 @@ Attribution
 
 .. |JOSS| |DOI|
 
-If you make use of this code, please cite ...
+If you make use of this code, please cite:
+
+TODO
 
 License
 -------
 
 |License|
 
-Copyright 2021-2023 Adrian Price-Whelan and contributors.
+Copyright 2021-2024 Adrian Price-Whelan and contributors.
 
 ``TorusImaging`` is free software made available under the MIT License. For details see
 the `LICENSE <https://github.com/adrn/TorusImaging/blob/main/LICENSE>`_ file.
