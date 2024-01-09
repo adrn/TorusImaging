@@ -10,8 +10,8 @@ def plot_data_models_residual(
     params_fit,
     params_init=None,
     smooth_residual=None,
-    vlim_residual=0.3,
-    fractional_residual=True,
+    vlim_residual=None,
+    residual_normalization=None,
     usys=None,
 ):
     """
@@ -21,14 +21,31 @@ def plot_data_models_residual(
     Parameters
     ----------
     binned_data : dict
-    model :
-        The model at parameter initialization.
+        The binned data dictionary.
+    model : TorusImaging1D
+        The model instance.
+    params_fit : dict
+        The optimized parameters, or the MAP parameters, or the parameters you would
+        like to show.
+    params_init : dict, None (optional)
+        The initial parameters. If specified, will plot the initial model as well.
     smooth_residual : float, None (optional)
         If specified (as a float), smooth the residual image by a Gaussian with kernel
         with set by this parameter.
     vlim_residual : float (optional)
         The vmin, vmax for the residual colormap are set using this value such that
         ``vmin=-vlim_residual`` and ``vmax=vlim_residual``.
+    residual_normalization : array-like, None (optional)
+        If specified, the residual is divided by this value. This is useful for
+        plotting fractional residuals.
+    usys : gala.units.UnitSystem, None (optional)
+        The unit system to use for plotting. If None, will use the unit system of the
+        model.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    axes : matplotlib.axes.Axes
     """
     if usys is None:
         usys = model.units
@@ -77,8 +94,8 @@ def plot_data_models_residual(
     fig.colorbar(cs, ax=axes[: i + 1], aspect=40)
 
     # Residual:
-    if fractional_residual:
-        resid = np.array((bd["label"] - model_H) / model_H)
+    if residual_normalization is not None:
+        resid = np.array((bd["label"] - model_H) / residual_normalization)
     else:
         resid = np.array((bd["label"] - model_H))
     if smooth_residual is not None:
@@ -109,8 +126,8 @@ def plot_data_models_residual(
         i += 1
     axes[i].set_title("fitted model")
 
-    if fractional_residual:
-        axes[i + 1].set_title("fractional residual")
+    if residual_normalization is not None:
+        axes[i + 1].set_title("normalized residual")
     else:
         axes[i + 1].set_title("residual")
 
