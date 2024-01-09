@@ -20,18 +20,17 @@ __all__ = ["TorusImaging1D"]
 
 class TorusImaging1D:
     def __init__(self, label_func, e_funcs, regularization_func=None, units=galactic):
-        r"""
-        This inherently assumes that you are working in a 1D phase space with position
-        coordinate ``x`` and velocity coordinate ``v``.
+        r"""This implementation assumes that you are working in a 1 degree of freedom
+        phase space with position coordinate ``q`` and velocity coordinate ``p``.
 
         Notation:
         - :math:`\Omega_0` or ``Omega0``: A scale frequency used to compute the
           elliptical radius ``r_e``. This is the asymptotic orbital frequency at zero
           action.
         - :math:`r_e` or ``r_e``: The elliptical radius
-          :math:`r_e = \sqrt{x^2\, \Omega_0 + v^2 \, \Omega_0^{-1}}`.
+          :math:`r_e = \sqrt{q^2\, \Omega_0 + p^2 \, \Omega_0^{-1}}`.
         - :math:`\theta_e` or ``theta_e``: The elliptical angle defined as
-          :math:`\tan{\theta_e} = \frac{x}{v}\,\Omega_0`.
+          :math:`\tan{\theta_e} = \frac{q}{p}\,\Omega_0`.
         - :math:`r` or ``r``: The distorted elliptical radius
           :math:`r = r_e \, f(r_e, \theta_e)`, which is close  to :math:`\sqrt{J}` (the
           action) and so we sometimes call it the "proxy action" below. :math:`f(\cdot)`
@@ -51,9 +50,8 @@ class TorusImaging1D:
             `jax.jit()`. The first argument of each of these functions should be the
             elliptical radius :math:`r_e` or ``re``.
         regularization_func : callable (optional)
-            TODO: describe
             An optional function that computes a regularization term to add to the
-            objective function when optimizing.
+            log-likelihood function when optimizing.
         units : `gala.units.UnitSystem` (optional)
             The unit system to work in. Default is to use the "galactic" unit system
             from Gala: (kpc, Myr, Msun, radian).
@@ -643,18 +641,40 @@ class TorusImaging1D:
 
     def mcmc_run_label(
         self,
-        binned_data,
-        p0,
-        bounds,
-        rng_seed=0,
-        num_steps=1000,
-        num_warmup=1000,
-    ):
-        """
-        EXPERIMENTAL
+        binned_data: dict,
+        p0: dict,
+        bounds: Optional[tuple[dict]] = None,
+        rng_seed: int = 0,
+        num_steps: int = 1000,
+        num_warmup: int = 1000,
+    ) -> tuple:
+        """Currently only supports uniform priors on all parameters, specified by the
+        input bounds.
 
-        Currently only supports uniform priors on all parameters, specified by the input
-        bounds.
+        Parameters
+        ----------
+        binned_data
+            A dictionary containing the binned label moment data.
+        p0
+            The initial values of the parameters.
+        bounds
+            The bounds on the parameters, used to define uniform priors on the
+            parameters. This can either be a tuple of dictionaries, or a dictionary of
+            tuples (keyed by parameter names) to specify the lower and upper bounds for
+            each parameter.
+        rng_seed
+            The random number generator seed.
+        num_steps
+            The number of MCMC steps to take.
+        num_warmup
+            The number of warmup or burn-in steps to take to tune the NUTS sampler.
+
+        Returns
+        -------
+        state
+            The HMCState object returned by BlackJAX.
+        mcmc_samples
+            A list of dictionaries containing the parameter values for each MCMC sample.
         """
         import blackjax
         import numpy as np

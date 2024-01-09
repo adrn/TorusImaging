@@ -156,8 +156,11 @@ class TorusImaging1DSpline(TorusImaging1D):
             and a parameter dictionary and returns an additional regularization term to
             add to the log-likelihood. If not specified, this defaults to the
             ``torusimaging.model_spline.regularization_function_default`` and additional
-            arguments to that function must be specified here. If `False`, no
-            regularization is applied.
+            arguments to that function must be specified here. The default
+            regularization function tries to enforce smoothness on the splines, and that
+            the density is positive. It requires the following keyword arguments:
+            ``label_l2_sigma, label_smooth_sigma, e_l2_sigmas, e_smooth_sigmas``. If
+            `False`, no regularization is applied.
         units
             A Gala `gala.units.UnitSystem` instance.
         **kwargs
