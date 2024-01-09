@@ -345,7 +345,7 @@ class TorusImaging1D:
                 ]
             )
         )
-        return -(Om**2) * pos * numer / denom
+        return -(Om**2) * (pos - params["pos0"]) * numer / denom
 
     _get_dacc_dpos = jax.grad(_get_acc, argnums=1)
     _get_dacc_dpos_vmap = jax.vmap(_get_dacc_dpos, in_axes=(None, 0, None))
