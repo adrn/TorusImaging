@@ -352,7 +352,9 @@ class TorusImaging1DSpline(TorusImaging1D):
         r_e, _ = self._get_elliptical_coords(
             binned_data["pos"].ravel(),
             binned_data["vel"].ravel(),
-            p0,
+            pos0=p0["pos0"],
+            vel0=p0["vel0"],
+            ln_Omega0=p0["ln_Omega0"],
         )
 
         # Estimate the label value near r_e = 0 and slopes for knot values:

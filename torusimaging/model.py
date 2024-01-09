@@ -71,7 +71,7 @@ class TorusImaging1D:
     # Internal functions used within likelihood functions:
     #
     @partial(jax.jit, static_argnames=["self"])
-    def _get_elliptical_coords(self, pos, vel, params):
+    def _get_elliptical_coords(self, pos, vel, pos0, vel0, ln_Omega0):
         r"""
         Compute the raw elliptical radius :math:`r_e` (``r_e``) and angle
         :math:`\theta_e'` (``theta_e``)
@@ -82,8 +82,8 @@ class TorusImaging1D:
         vel : numeric, array-like
         params : dict
         """
-        x = (vel - params["vel0"]) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
-        y = (pos - params["pos0"]) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
+        x = (vel - vel0) / jnp.sqrt(jnp.exp(ln_Omega0))
+        y = (pos - pos0) * jnp.sqrt(jnp.exp(ln_Omega0))
 
         r_e = jnp.sqrt(x**2 + y**2)
         t_e = jnp.arctan2(y, x)
@@ -195,13 +195,25 @@ class TorusImaging1D:
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_label(self, pos, vel, params):
-        r_e, th_e = self._get_elliptical_coords(pos, vel, params)
+        r_e, th_e = self._get_elliptical_coords(
+            pos,
+            vel,
+            pos0=params["pos0"],
+            vel0=params["vel0"],
+            ln_Omega0=params["ln_Omega0"],
+        )
         r = self._get_r(r_e, th_e, params["e_params"])
         return self.label_func(r, **params["label_params"])
 
     @partial(jax.jit, static_argnames=["self", "N_grid", "Bisection_kwargs"])
     def _get_T_J_theta(self, pos, vel, params, N_grid, Bisection_kwargs):
-        re_, the_ = self._get_elliptical_coords(pos, vel, params)
+        re_, the_ = self._get_elliptical_coords(
+            pos,
+            vel,
+            pos0=params["pos0"],
+            vel0=params["vel0"],
+            ln_Omega0=params["ln_Omega0"],
+        )
         r = self._get_r(re_, the_, params["e_params"])
 
         dpos_dthe_func = jax.vmap(
@@ -261,7 +273,13 @@ class TorusImaging1D:
 
         x = pos.decompose(self.units).value
         v = vel.decompose(self.units).value
-        re, te = self._get_elliptical_coords(x, v, params)
+        re, te = self._get_elliptical_coords(
+            x,
+            v,
+            pos0=params["pos0"],
+            vel0=params["vel0"],
+            ln_Omega0=params["ln_Omega0"],
+        )
         return (
             re
             * self.units["length"]
@@ -298,7 +316,13 @@ class TorusImaging1D:
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_acc(self, pos, params):
-        r_e, _ = self._get_elliptical_coords(pos, 0.0, params)
+        r_e, _ = self._get_elliptical_coords(
+            pos,
+            0.0,
+            pos0=params["pos0"],
+            vel0=0.0,
+            ln_Omega0=params["ln_Omega0"],
+        )
 
         Om = jnp.exp(params["ln_Omega0"])
 
