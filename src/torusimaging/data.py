@@ -1,3 +1,8 @@
+"""Utilities for working with kinematic and stellar label data."""
+
+
+__all__ = ["get_binned_counts", "get_binned_label"]
+
 from typing import Optional
 
 import astropy.units as u
@@ -6,8 +11,6 @@ import numpy.typing as npt
 from astropy.stats import median_absolute_deviation as MAD
 from gala.units import UnitSystem
 from scipy.stats import binned_statistic_2d
-
-__all__ = ["get_binned_counts", "get_binned_label"]
 
 
 def _get_bins_tuple(bins, units=None):

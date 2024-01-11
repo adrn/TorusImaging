@@ -5,7 +5,17 @@ TorusImaging
    :width: 200
    :alt: mmm donut
 
-TorusImaging is a Python package for ...
+|
+
+TorusImaging is a Python package that implements *Orbital Torus Imaging* (OTI), a
+flexible framework for foliating projections of phase space with orbits and modeling
+stellar label data.
+This can be used in data-driven studies of dynamics to infer the mass distribution for
+the Milky Way without requiring a global model for the Milky Way or detailed modeling of
+the selection function of the input survey data.
+For example, see [Horta et al. (2024)](https://arxiv.org/abs/2312.07664) for a set of
+applications to data, and [Price-Whelan et al. (2024)](tbd) for a detailed description
+of the method.
 
 
 Tutorials
@@ -18,11 +28,22 @@ Tutorials
     tutorials/*
 
 
-***
 API
-***
+---
 
 .. automodapi:: torusimaging
     :no-inheritance-diagram:
-    :no-heading:
-    :headings: "=-"
+    :headings: "*^"
+    :no-main-docstr:
+
+|
+
+.. automodapi:: torusimaging.data
+    :no-inheritance-diagram:
+    :headings: "*^"
+
+|
+
+.. automodapi:: torusimaging.plot
+    :no-inheritance-diagram:
+    :headings: "*^"

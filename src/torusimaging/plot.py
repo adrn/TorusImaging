@@ -1,3 +1,7 @@
+"""Utilities for plotting torusimaging models and data."""
+
+__all__ = ["plot_data_models_residual", "plot_spline_functions"]
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np

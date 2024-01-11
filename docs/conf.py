@@ -36,6 +36,7 @@ html_static_path = ["_static"]
 html_css_files = [
     "custom.css",
 ]
+html_theme_options = {"header_links_before_dropdown": 1}
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
