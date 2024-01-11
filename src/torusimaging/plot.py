@@ -55,14 +55,14 @@ def plot_data_models_residual(
         for k, v in binned_data.items()
     }
 
-    vlim = dict(
-        norm=mpl.colors.Normalize(
+    vlim = {
+        "norm": mpl.colors.Normalize(
             *np.percentile(
                 binned_data["label"][np.isfinite(binned_data["label"])], [1, 99]
             )
         ),
-        shading="auto",
-    )
+        "shading": "auto",
+    }
     model_func = model._get_label
 
     ncols = 3
@@ -97,7 +97,7 @@ def plot_data_models_residual(
     if residual_normalization is not None:
         resid = np.array((bd["label"] - model_H) / residual_normalization)
     else:
-        resid = np.array((bd["label"] - model_H))
+        resid = np.array(bd["label"] - model_H)
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
 
@@ -143,7 +143,7 @@ def plot_spline_functions(model, params):
     ax = axes[0]
     sum_ = None
     for m, vals in e_vals.items():
-        (l,) = ax.plot(r_e_grid, vals, marker="", label=f"$e_{m}$")  # noqa
+        (l,) = ax.plot(r_e_grid, vals, marker="", label=f"$e_{m}$")  # noqa: E741
         ax.scatter(
             model._e_knots[m],
             model.e_funcs[m](model._e_knots[m], params["e_params"][m]["vals"]),
@@ -162,7 +162,7 @@ def plot_spline_functions(model, params):
 
     ax = axes[1]
     l_vals = model.label_func(r_e_grid, **params["label_params"])
-    (l,) = ax.plot(r_e_grid, l_vals, marker="")  # noqa
+    (l,) = ax.plot(r_e_grid, l_vals, marker="")  # noqa: E741
 
     l_vals = model.label_func(model._label_knots, **params["label_params"])
     ax.scatter(model._label_knots, l_vals, color=l.get_color())
@@ -211,7 +211,7 @@ def plot_cov_corner(cov, mean=None, labels=None, subplots_kw=None, ellipse_kw=No
     subplots_kw.setdefault("constrained_layout", True)
 
     fig, axes = plt.subplots(K - 1, K - 1, **subplots_kw)
-    print(K, np.shape(axes))
+
     for i in range(K - 1):
         for j in range(1, K):
             ax = axes[j - 1, i]

@@ -122,7 +122,9 @@ def monotonic_quadratic_spline(x, y, x_eval):
 
     for j, m in enumerate(jnp.arange(2 * (len(x) - 1), N - 1)):
         A = A.at[m, 3 * j : 3 * j + 3].set([x[j + 1] ** 2, x[j + 1], 1])
-        A = A.at[m, 3 * (j + 1) : 3 * (j + 1) + 3].set([-x[j + 1] ** 2, -x[j + 1], -1])
+        A = A.at[m, 3 * (j + 1) : 3 * (j + 1) + 3].set(
+            [-(x[j + 1] ** 2), -x[j + 1], -1]
+        )
 
     A = A.at[-1, 0].set(1.0)
 
@@ -134,6 +136,4 @@ def monotonic_quadratic_spline(x, y, x_eval):
     coeff_ind = jnp.stack((ind, ind + 1, ind + 2), axis=0)
 
     xxx = jnp.stack([x_eval**2, x_eval, jnp.ones_like(x_eval)], axis=0)
-    f = jnp.sum(coeffs[coeff_ind] * xxx, axis=0)
-
-    return f
+    return jnp.sum(coeffs[coeff_ind] * xxx, axis=0)

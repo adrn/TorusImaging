@@ -1,64 +1,181 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+
 [project]
 name = "torusimaging"
 authors = [
     {name = "Adrian Price-Whelan", email = "adrianmpw@gmail.com"},
 ]
-description = "Implementation of methods related to Orbital Torus Imaging"
-readme = "README.rst"
-requires-python = ">=3.10"
-keywords = ["astronomy", "dynamics"]
-license = {file = "LICENSE"}
+description = "Inferring the Galactic mass distribution with stellar labels"
+readme = "README.md"
+keywords = ["astronomy", "galactic dynamics", "dynamics"]
+license.file = "LICENSE"
+requires-python = ">=3.9"
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Programming Language :: Python"
-]
-dependencies = [
-    "numpy>=1.20",
-    "scipy>=1.9",
-    "astropy>=5.1",
-    "pyyaml",
-    "gala",
-    "jax",
-    "jaxlib",
-    "jaxopt",
-    "jax_cosmo"
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Typing :: Typed",
 ]
 dynamic = ["version"]
+dependencies = [
+  "numpy>=1.20",
+  "scipy>=1.9",
+  "astropy>=5.1",
+  "pyyaml",
+  "gala",
+  "jax",
+  "jaxlib",
+  "jaxopt",
+  "jax_cosmo"
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest >=6",
+  "pytest-cov >=3",
+  "pytest-astropy",
+  "pyyaml",
+]
+dev = [
+  "pytest >=6",
+  "pytest-cov >=3",
+]
+docs = [
+  "sphinx>=7.0",
+  "sphinx_copybutton",
+  "sphinx_autodoc_typehints",
+  "matplotlib",
+  "scipy",
+  "sphinx-automodapi",
+  "pydata-sphinx-theme",
+  "agama"
+]
 
 [project.urls]
-Documentation = "https://torusimaging.readthedocs.io"
-Repository = "https://github.com/adrn/TorusImaging.git"
+Homepage = "https://github.com/adrn/torusimaging"
+"Bug Tracker" = "https://github.com/adrn/torusimaging/issues"
+Discussions = "https://github.com/adrn/torusimaging/discussions"
+Changelog = "https://github.com/adrn/torusimaging/releases"
 
-[build-system]
-requires = ["setuptools>=42", "wheel", "setuptools_scm"]
-build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["torusimaging", "torusimaging.*"]
+[tool.hatch]
+version.source = "vcs"
+build.hooks.vcs.version-file = "src/torusimaging/_version.py"
 
-[tool.setuptools.package-data]
-"torusimaging.tests" = ["test-data.npz"]
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
 
-[tool.black]
-line-length = 88
-target-version = ["py310"]
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+xfail_strict = true
+filterwarnings = [
+  "error",
+  "ignore:unclosed file:ResourceWarning",
+  "ignore:unclosed <socket:ResourceWarning",
+  "ignore:unclosed <ssl.SSLSocket:ResourceWarning",
+  "ignore:negative parallaxes are converted:astropy.utils.exceptions.AstropyWarning"
+]
+log_cli_level = "INFO"
+testpaths = [
+  "tests",
+]
 
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-line_length = 88
+[tool.coverage]
+run.source = ["torusimaging"]
+port.exclude_lines = [
+  'pragma: no cover',
+  '\.\.\.',
+  'if typing.TYPE_CHECKING:',
+]
+
+[tool.mypy]
+files = ["src", "tests"]
+python_version = "3.9"
+warn_unused_configs = true
+strict = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+warn_unreachable = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = "torusimaging.*"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "astropy.*",
+  "numpy.*",
+  "astroquery.*",
+  "dustmaps.*"
+]
+ignore_missing_imports = true
 
 [tool.ruff]
-line-length = 88
-select = ["E", "F"]
-force-exclude = true
+src = ["src"]
 
-[tool.ruff.per-file-ignores]
-"__init__.py" = ["F401", "F403"]
-"test*.py" = ["F841"]
-"docs/tutorials/*" = ["E703"]
+[tool.ruff.lint]
+extend-select = [
+  "B",        # flake8-bugbear
+  "I",        # isort
+  "ARG",      # flake8-unused-arguments
+  "C4",       # flake8-comprehensions
+  "EM",       # flake8-errmsg
+  "ICN",      # flake8-import-conventions
+  "G",        # flake8-logging-format
+  "PGH",      # pygrep-hooks
+  "PIE",      # flake8-pie
+  "PL",       # pylint
+  "PT",       # flake8-pytest-style
+  "PTH",      # flake8-use-pathlib
+  "RET",      # flake8-return
+  "RUF",      # Ruff-specific
+  "SIM",      # flake8-simplify
+  "T20",      # flake8-print
+  "UP",       # pyupgrade
+  "YTT",      # flake8-2020
+  "EXE",      # flake8-executable
+  "NPY",      # NumPy specific rules
+  "PD",       # pandas-vet
+]
+ignore = [
+  "PLR09",    # Too many <...>
+  "PLR2004",  # Magic value used in comparison
+  "ISC001",   # Conflicts with formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+"noxfile.py" = ["T20"]
+"src/torusimaging/model_helpers.py" = ["PD008"]
+
+[tool.pylint]
+py-version = "3.9"
+ignore-paths = [".*/_version.py"]
+reports.output-format = "colorized"
+similarities.ignore-imports = "yes"
+messages_control.disable = [
+  "W",
+  "C",
+  "design",
+  "fixme",
+  "line-too-long",
+  "missing-module-docstring",
+  "wrong-import-position",
+]

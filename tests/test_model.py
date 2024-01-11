@@ -19,7 +19,7 @@ valid_state["vz0"] = 0.0
 states.append(valid_state)
 
 
-@pytest.mark.parametrize(["model", "valid_state"], zip(models, states))
+@pytest.mark.parametrize(("model", "valid_state"), zip(models, states))
 def test_density_model_validate(model, valid_state):
     # This should work:
     model.state = valid_state
@@ -37,7 +37,7 @@ def test_density_model_validate(model, valid_state):
     # These should also fail: remove a single key from the "e_params" sub-dictionaries
     for m in valid_state["e_params"]:
         tmp_state = copy.deepcopy(valid_state)
-        for sub_k in valid_state["e_params"][m].keys():
+        for sub_k in valid_state["e_params"][m]:
             tmp_state["e_params"][m].pop(sub_k)
             model.state = tmp_state
             with pytest.raises(RuntimeError):
@@ -45,16 +45,16 @@ def test_density_model_validate(model, valid_state):
 
     # These should also fail: remove a single key from the "*_params" dictionaries
     name = f"{model.fit_name}_params"
-    for m in valid_state[name]:
+    for _ in valid_state[name]:
         tmp_state = copy.deepcopy(valid_state)
-        for sub_k in valid_state[name].keys():
+        for sub_k in valid_state[name]:
             tmp_state[name].pop(sub_k)
             model.state = tmp_state
             with pytest.raises(RuntimeError):
                 model._validate_state()
 
 
-@pytest.mark.parametrize(["model", "valid_state"], zip(models, states))
+@pytest.mark.parametrize(("model", "valid_state"), zip(models, states))
 def test_density_model_get_params(model, valid_state):
     model = model.copy()
     model.state = valid_state

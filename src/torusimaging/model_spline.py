@@ -8,7 +8,7 @@ import numpy.typing as npt
 from gala.units import UnitSystem, galactic
 from scipy.stats import binned_statistic
 
-import torusimaging.data as data
+from torusimaging import data
 from torusimaging.model import TorusImaging1D
 from torusimaging.model_helpers import monotonic_quadratic_spline
 
@@ -40,7 +40,7 @@ def regularization_func_default(
     if dacc_strength > 0:
         # Soft rectifier regularization meant to keep d(acc)/d(pos) < 0
         # (i.e. this tries to enforce positive density)
-        for m, func in model.e_funcs.items():
+        for m in model.e_funcs:
             z_knots = model._e_knots[m][1:] / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
             daz = model._get_dacc_dpos_vmap(z_knots, params) / dacc_dpos_scale
             p += dacc_strength * jnp.sum(jnp.log(1 + jnp.exp(daz)))
@@ -298,11 +298,12 @@ class TorusImaging1DSpline(TorusImaging1D):
             for arg_name in arg_names:
                 p = sig.parameters[arg_name]
                 if arg_name not in kwargs and p.default is inspect._empty:
-                    raise ValueError(
+                    msg = (
                         "The regularization function requires additional arguments: "
                         f"{arg_names!s}, which must be passed as keyword arguments to "
                         "this class method"
                     )
+                    raise ValueError(msg)
                 reg_kw[arg_name] = kwargs.get(arg_name, p.default)
 
             reg_func = partial(regularization_func, **reg_kw)

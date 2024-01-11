@@ -64,7 +64,7 @@ class TorusImaging1D:
         self.units = UnitSystem(units)
 
         if regularization_func is None:
-            regularization_func = lambda *_, **__: 0.0  # noqa
+            regularization_func = lambda *_, **__: 0.0  # noqa: E731
         self.regularization_func = regularization_func
 
     # ---------------------------------------------------------------------------------
@@ -331,17 +331,14 @@ class TorusImaging1D:
 
         numer = 1 + jnp.sum(
             jnp.array(
-                [
-                    (-1) ** (m / 2) * (es[m] + de_dres[m] * r_e)
-                    for m in self.e_funcs.keys()
-                ]
+                [(-1) ** (m / 2) * (es[m] + de_dres[m] * r_e) for m in self.e_funcs]
             )
         )
         denom = 1 + jnp.sum(
             jnp.array(
                 [
                     (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_dres[m] * r_e)
-                    for m in self.e_funcs.keys()
+                    for m in self.e_funcs
                 ]
             )
         )
@@ -448,7 +445,7 @@ class TorusImaging1D:
         import numpy as np
 
         if jaxopt_kwargs is None:
-            jaxopt_kwargs = dict()
+            jaxopt_kwargs = {}
         jaxopt_kwargs.setdefault("maxiter", 16384)
 
         vals, treedef = jax.tree_util.tree_flatten(params0)
@@ -474,7 +471,8 @@ class TorusImaging1D:
         if not res.state.success:
             warn(
                 "Optimization failed! See the returned result object for more "
-                "information, but the model state was not updated"
+                "information, but the model state was not updated",
+                stacklevel=1,
             )
 
         return res
@@ -491,10 +489,10 @@ class TorusImaging1D:
         def clean_dict(d):
             if isinstance(d, dict):
                 return {k: clean_dict(v) for k, v in d.items()}
-            else:
-                d = np.array(d)
-                assert d.shape[0] == 2
-                return d
+
+            d = np.array(d)
+            assert d.shape[0] == 2
+            return d
 
         # Make sure all tuples / lists become arrays:
         clean_bounds = clean_dict(bounds)
@@ -523,7 +521,7 @@ class TorusImaging1D:
                 jax.grad(self.e_funcs[m], argnums=0),
                 in_axes=[0] + [None] * len(e_params[m]),
             )
-            for m in self.e_funcs.keys()
+            for m in self.e_funcs
         }
 
         thes = np.linspace(0, np.pi / 2, 128)
@@ -581,9 +579,7 @@ class TorusImaging1D:
         fisher = jax.hessian(wrapper)(flat_params, data, sizes)
         if inv:
             return fisher
-        fisher_inv = np.linalg.inv(fisher)
-
-        return fisher_inv
+        return np.linalg.inv(fisher)
 
     def get_crlb_uncertainties(
         self,
@@ -660,8 +656,8 @@ class TorusImaging1D:
                     jax.tree_util.tree_unflatten(treedef, [arr[n] for arr in arrs])
                 )
             return samples
-        else:
-            return jax.tree_util.tree_unflatten(treedef, arrs)
+
+        return jax.tree_util.tree_unflatten(treedef, arrs)
 
     def mcmc_run_label(
         self,
@@ -709,15 +705,16 @@ class TorusImaging1D:
             & np.isfinite(binned_data["label_err"])
             & (binned_data["label_err"] > 0)
         )
-        data = dict(
-            pos=binned_data["pos"].decompose(self.units).value[mask],
-            vel=binned_data["vel"].decompose(self.units).value[mask],
-            label=binned_data["label"][mask],
-            label_err=binned_data["label_err"][mask],
-        )
+        data = {
+            "pos": binned_data["pos"].decompose(self.units).value[mask],
+            "vel": binned_data["vel"].decompose(self.units).value[mask],
+            "label": binned_data["label"][mask],
+            "label_err": binned_data["label_err"][mask],
+        }
         test_val = self.objective_gaussian(p0, **data)
         if not np.isfinite(test_val):
-            raise RuntimeError("Objective function evaluated to non-finite value")
+            msg = "Objective function evaluated to non-finite value"
+            raise RuntimeError(msg)
 
         lb, ub = self.unpack_bounds(bounds)
         lb_arrs = jax.tree_util.tree_flatten(lb)[0]

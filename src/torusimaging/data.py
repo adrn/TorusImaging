@@ -25,8 +25,7 @@ def _get_bins_tuple(bins, units=None):
 def _get_arr(x, units):
     if units is not None:
         return x.decompose(units).value if hasattr(x, "unit") else x
-    else:
-        return x.value if hasattr(x, "unit") else x
+    return x.value if hasattr(x, "unit") else x
 
 
 @u.quantity_input
@@ -102,10 +101,11 @@ def _infer_intrinsic_scatter(y, y_err, nan_safe=False):
         if nan_safe:
             s = np.nan
         else:
-            raise RuntimeError(
+            msg = (
                 "Failed to determine error-deconvolved estimate of the intrinsic "
                 "scatter in a phase-space pixel."
             )
+            raise RuntimeError(msg)
 
     return s
 
@@ -206,7 +206,8 @@ def get_binned_label(
         s = np.nanmean(s_trials)
 
         if not np.isfinite(s):
-            raise ValueError("Failed to determine intrinsic scatter from label data")
+            msg = "Failed to determine intrinsic scatter from label data"
+            raise ValueError(msg)
 
     if np.all(label_err == 0):
         # No label errors provided
