@@ -55,7 +55,7 @@ def get_binned_counts(
 
     Returns
     -------
-    binned_data
+    dict
         Keys are "pos", "vel", "counts", "label", where label is the natural log of the
         counts.
     """
@@ -156,7 +156,7 @@ def get_binned_label(
 
     Returns
     -------
-    binned_data
+    dict
         Keys are "pos", "vel", "counts", "label", and "label_err".
     """
     if moment != "mean":
