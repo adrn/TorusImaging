@@ -14,10 +14,14 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_automodapi.automodapi",
     "sphinx_automodapi.smart_resolver",
-    "nbsphinx",
+    "myst_nb",
 ]
 
-source_suffix = [".rst", ".md"]
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".ipynb": "myst-nb",
+    ".myst": "myst-nb",
+}
 exclude_patterns = [
     "_build",
     "**.ipynb_checkpoints",
@@ -35,14 +39,9 @@ html_css_files = [
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
     "numpy": (
         "https://numpy.org/doc/stable/",
         (None, "http://data.astropy.org/intersphinx/numpy.inv"),
-    ),
-    "scipy": (
-        "https://docs.scipy.org/doc/scipy/",
-        (None, "http://data.astropy.org/intersphinx/scipy.inv"),
     ),
     "matplotlib": (
         "https://matplotlib.org/stable/",
@@ -50,6 +49,7 @@ intersphinx_mapping = {
     ),
     "astropy": ("https://docs.astropy.org/en/stable/", None),
     "jax": ("https://jax.readthedocs.io/en/latest/", None),
+    "gala": ("https://gala.adrian.pw/en/latest/", None),
 }
 
 nitpick_ignore = [
@@ -58,3 +58,6 @@ nitpick_ignore = [
 ]
 
 always_document_param_types = True
+
+# myst-nb
+nb_execution_mode = "off"

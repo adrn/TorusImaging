@@ -1,10 +1,9 @@
 TorusImaging
 ============
 
-.. image:: ../_static/torus.webp
-   :width: 500
+.. image:: _static/torus.jpg
+   :width: 200
    :alt: mmm donut
-   :align: center
 
 TorusImaging is a Python package for ...
 
