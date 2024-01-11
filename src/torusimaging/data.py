@@ -35,23 +35,27 @@ def _get_arr(x, units):
 def get_binned_counts(
     pos: u.Quantity[u.kpc],
     vel: u.Quantity[u.km / u.s],
-    bins: dict | tuple,
+    bins: dict[str, u.Quantity] | tuple,
     units: Optional[UnitSystem] = None,
-):
-    """
+) -> dict[str, u.Quantity | npt.NDArray]:
+    """Bin the data in pixels of phase-space coordinates (pos, vel) and return the
+    number of stars (counts) and log-number of stars (label).
+
     Parameters
     ----------
-    pos : quantity-like
-    vel : quantity-like
-    bins : tuple, dict
+    pos
+        The position values.
+    vel
+        The velocity values.
+    bins
         A specification of the bins. This can either be a tuple, where the order
         is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
-    units : UnitSystem (optional)
+    units
         The unit system to work in.
 
     Returns
     -------
-    binned_data : dict
+    binned_data
         Keys are "pos", "vel", "counts", "label", where label is the natural log of the
         counts.
     """
@@ -72,9 +76,7 @@ def get_binned_counts(
         "pos": xc * units["length"],
         "vel": yc * units["length"] / units["time"],
         "counts": H.T,
-        "label": np.log(
-            H.T
-        ),  # TODO: document that label is log(counts) for density model
+        "label": np.log(H.T),
     }
 
 
@@ -118,41 +120,49 @@ def get_binned_label(
     pos: u.Quantity[u.kpc],
     vel: u.Quantity[u.km / u.s],
     label: npt.ArrayLike,
-    bins: dict | tuple,
+    bins: dict[str, u.Quantity] | tuple,
+    moment: str = "mean",
     label_err: Optional[npt.ArrayLike] = None,
     units: Optional[UnitSystem] = None,
     s: Optional[float] = None,
     s_N_thresh: Optional[int] = 128,
-):
-    """
-
-    TODO: currently only supports returning the mean and uncertainty on the mean.
-    TODO: how it computed binned label error
-    TODO: s as intrinsic scatter
+) -> dict[str, u.Quantity | npt.NDArray]:
+    """Bin the data in pixels of phase-space coordinates (pos, vel) and return the
+    mean (or other moment) of the label values in each pixel.
 
     Parameters
     ----------
-    pos : quantity-like
-    vel : quantity-like
-    label : array-like
-    bins : tuple, dict
+    pos
+        The position values.
+    vel
+        The velocity values.
+    label
+        The label values.
+    bins
         A specification of the bins. This can either be a tuple, where the order
         is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
-    label_err : array-like
-    units : UnitSystem (optional)
+    moment
+        The type of moment to compute. Currently only supports "mean".
+    label_err
+        The measurement error for each label value.
+    units
         The unit system to work in.
-    s : float (optional)
+    s
         The intrinsic scatter of label values within each pixel. If not provided,
         this will be estimated from the data.
-    s_N_thresh : int (optional)
+    s_N_thresh
         If the intrinsic scatter ``s`` is not specified, this sets the threshold for the
         number of objects per bin required to estimate the intrinsic scatter.
 
     Returns
     -------
-    binned_data : dict
+    binned_data
         Keys are "pos", "vel", "counts", "label", and "label_err".
     """
+    if moment != "mean":
+        msg = "Only the mean is currently supported."
+        raise NotImplementedError(msg)
+
     pre_err_state = np.geterr()
     np.seterr(divide="ignore", invalid="ignore")
 
