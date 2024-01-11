@@ -60,7 +60,7 @@ docs = [
   "scipy",
   "sphinx-automodapi",
   "pydata-sphinx-theme",
-  "agama"
+  "nbsphinx"
 ]
 
 [project.urls]

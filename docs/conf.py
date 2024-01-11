@@ -1,28 +1,60 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
+import importlib.metadata
 
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+project = "torusimaging"
+copyright = "2024, Adrian Price-Whelan"
+author = "Adrian Price-Whelan"
+version = release = importlib.metadata.version("torusimaging")
 
-project = 'TorusImaging'
-copyright = '2023, Adrian Price-Whelan @adrn'
-author = 'Adrian Price-Whelan @adrn'
-release = 'v0.1'
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.mathjax",
+    "sphinx.ext.napoleon",
+    "sphinx_autodoc_typehints",
+    "sphinx_copybutton",
+    "sphinx_automodapi.automodapi",
+    "sphinx_automodapi.smart_resolver",
+    "nbsphinx",
+]
 
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+source_suffix = [".rst", ".md"]
+exclude_patterns = [
+    "_build",
+    "**.ipynb_checkpoints",
+    "Thumbs.db",
+    ".DS_Store",
+    ".env",
+    ".venv",
+]
 
-extensions = []
+html_theme = "pydata_sphinx_theme"
+html_static_path = ["_static"]
+html_css_files = [
+    "custom.css",
+]
 
-templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
+    "numpy": (
+        "https://numpy.org/doc/stable/",
+        (None, "http://data.astropy.org/intersphinx/numpy.inv"),
+    ),
+    "scipy": (
+        "https://docs.scipy.org/doc/scipy/",
+        (None, "http://data.astropy.org/intersphinx/scipy.inv"),
+    ),
+    "matplotlib": (
+        "https://matplotlib.org/stable/",
+        (None, "http://data.astropy.org/intersphinx/matplotlib.inv"),
+    ),
+    "astropy": ("https://docs.astropy.org/en/stable/", None),
+    "jax": ("https://jax.readthedocs.io/en/latest/", None),
+}
 
+nitpick_ignore = [
+    ("py:class", "_io.StringIO"),
+    ("py:class", "_io.BytesIO"),
+]
 
-
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
-
-html_theme = 'alabaster'
-html_static_path = ['_static']
+always_document_param_types = True

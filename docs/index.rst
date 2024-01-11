@@ -1,20 +1,29 @@
-.. TorusImaging documentation master file, created by
-   sphinx-quickstart on Sat Jul 22 12:06:59 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+TorusImaging
+============
 
-Welcome to TorusImaging's documentation!
-========================================
+.. image:: ../_static/torus.webp
+   :width: 500
+   :alt: mmm donut
+   :align: center
+
+TorusImaging is a Python package for ...
+
+
+Tutorials
+---------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+    :maxdepth: 1
+    :glob:
+
+    tutorials/*
 
 
+***
+API
+***
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+.. automodapi:: torusimaging
+    :no-inheritance-diagram:
+    :no-heading:
+    :headings: "=-"
