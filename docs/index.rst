@@ -1,12 +1,6 @@
 TorusImaging
 ============
 
-.. image:: _static/torus.jpg
-   :width: 200
-   :alt: mmm donut
-
-|
-
 TorusImaging is a Python package that implements *Orbital Torus Imaging* (OTI), a
 flexible framework for foliating projections of phase space with orbits and modeling
 stellar label data.
@@ -16,6 +10,12 @@ the selection function of the input survey data.
 For example, see [Horta et al. (2024)](https://arxiv.org/abs/2312.07664) for a set of
 applications to data, and [Price-Whelan et al. (2024)](tbd) for a detailed description
 of the method.
+
+|
+
+.. image:: _static/torus.jpg
+   :width: 200
+   :alt: mmm donut
 
 
 Tutorials
