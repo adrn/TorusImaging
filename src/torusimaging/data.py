@@ -3,7 +3,6 @@
 
 __all__ = ["get_binned_counts", "get_binned_label"]
 
-from typing import Optional
 
 import astropy.units as u
 import numpy as np
@@ -36,7 +35,7 @@ def get_binned_counts(
     pos: u.Quantity[u.kpc],
     vel: u.Quantity[u.km / u.s],
     bins: dict[str, u.Quantity] | tuple,
-    units: Optional[UnitSystem] = None,
+    units: UnitSystem | None = None,
 ) -> dict[str, u.Quantity | npt.NDArray]:
     """Bin the data in pixels of phase-space coordinates (pos, vel) and return the
     number of stars (counts) and log-number of stars (label).
@@ -122,10 +121,10 @@ def get_binned_label(
     label: npt.ArrayLike,
     bins: dict[str, u.Quantity] | tuple,
     moment: str = "mean",
-    label_err: Optional[npt.ArrayLike] = None,
-    units: Optional[UnitSystem] = None,
-    s: Optional[float] = None,
-    s_N_thresh: Optional[int] = 128,
+    label_err: npt.ArrayLike | None = None,
+    units: UnitSystem | None = None,
+    s: float | None = None,
+    s_N_thresh: int | None = 128,
 ) -> dict[str, u.Quantity | npt.NDArray]:
     """Bin the data in pixels of phase-space coordinates (pos, vel) and return the
     mean (or other moment) of the label values in each pixel.
