@@ -11,8 +11,6 @@
 [actions-link]:             https://github.com/adrn/torusimaging/actions
 [conda-badge]:              https://img.shields.io/conda/vn/conda-forge/torusimaging
 [conda-link]:               https://github.com/conda-forge/torusimaging-feedstock
-[github-discussions-badge]: https://img.shields.io/static/v1?label=Discussions&message=Ask&color=blue&logo=github
-[github-discussions-link]:  https://github.com/adrn/torusimaging/discussions
 [pypi-link]:                https://pypi.org/project/torusimaging/
 [pypi-platforms]:           https://img.shields.io/pypi/pyversions/torusimaging
 [pypi-version]:             https://img.shields.io/pypi/v/torusimaging
