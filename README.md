@@ -24,7 +24,7 @@
 <!-- prettier-ignore-end -->
 
 An implementation of the method of
-`Orbital Torus Imaging <https://arxiv.org/abs/2012.00015>`\_, which exploits
+[Orbital Torus Imaging](https://arxiv.org/abs/2012.00015), which exploits
 gradients in stellar labels (e.g., element abundances or ages) or stellar label
 moments to infer the orbit structure and mass distribution of the Galaxy.
 
