@@ -14,8 +14,6 @@ repos:
     hooks:
       - id: check-merge-conflict
       - id: end-of-file-fixer
-      - id: name-tests-test
-        args: ["--pytest-test-first"]
       - id: trailing-whitespace
 
   - repo: https://github.com/pre-commit/mirrors-prettier
