@@ -1,4 +1,8 @@
-from typing import Optional
+"""Utilities for working with kinematic and stellar label data."""
+
+
+__all__ = ["get_binned_counts", "get_binned_label"]
+
 
 import astropy.units as u
 import numpy as np
@@ -6,8 +10,6 @@ import numpy.typing as npt
 from astropy.stats import median_absolute_deviation as MAD
 from gala.units import UnitSystem
 from scipy.stats import binned_statistic_2d
-
-__all__ = ["get_binned_counts", "get_binned_label"]
 
 
 def _get_bins_tuple(bins, units=None):
@@ -25,31 +27,34 @@ def _get_bins_tuple(bins, units=None):
 def _get_arr(x, units):
     if units is not None:
         return x.decompose(units).value if hasattr(x, "unit") else x
-    else:
-        return x.value if hasattr(x, "unit") else x
+    return x.value if hasattr(x, "unit") else x
 
 
 @u.quantity_input
 def get_binned_counts(
     pos: u.Quantity[u.kpc],
     vel: u.Quantity[u.km / u.s],
-    bins: dict | tuple,
-    units: Optional[UnitSystem] = None,
-):
-    """
+    bins: dict[str, u.Quantity] | tuple,
+    units: UnitSystem | None = None,
+) -> dict[str, u.Quantity | npt.NDArray]:
+    """Bin the data in pixels of phase-space coordinates (pos, vel) and return the
+    number of stars (counts) and log-number of stars (label).
+
     Parameters
     ----------
-    pos : quantity-like
-    vel : quantity-like
-    bins : tuple, dict
+    pos
+        The position values.
+    vel
+        The velocity values.
+    bins
         A specification of the bins. This can either be a tuple, where the order
         is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
-    units : UnitSystem (optional)
+    units
         The unit system to work in.
 
     Returns
     -------
-    binned_data : dict
+    dict
         Keys are "pos", "vel", "counts", "label", where label is the natural log of the
         counts.
     """
@@ -70,9 +75,7 @@ def get_binned_counts(
         "pos": xc * units["length"],
         "vel": yc * units["length"] / units["time"],
         "counts": H.T,
-        "label": np.log(
-            H.T
-        ),  # TODO: document that label is log(counts) for density model
+        "label": np.log(H.T),
     }
 
 
@@ -102,10 +105,11 @@ def _infer_intrinsic_scatter(y, y_err, nan_safe=False):
         if nan_safe:
             s = np.nan
         else:
-            raise RuntimeError(
+            msg = (
                 "Failed to determine error-deconvolved estimate of the intrinsic "
                 "scatter in a phase-space pixel."
             )
+            raise RuntimeError(msg)
 
     return s
 
@@ -115,41 +119,49 @@ def get_binned_label(
     pos: u.Quantity[u.kpc],
     vel: u.Quantity[u.km / u.s],
     label: npt.ArrayLike,
-    bins: dict | tuple,
-    label_err: Optional[npt.ArrayLike] = None,
-    units: Optional[UnitSystem] = None,
-    s: Optional[float] = None,
-    s_N_thresh: Optional[int] = 128,
-):
-    """
-
-    TODO: currently only supports returning the mean and uncertainty on the mean.
-    TODO: how it computed binned label error
-    TODO: s as intrinsic scatter
+    bins: dict[str, u.Quantity] | tuple,
+    moment: str = "mean",
+    label_err: npt.ArrayLike | None = None,
+    units: UnitSystem | None = None,
+    s: float | None = None,
+    s_N_thresh: int | None = 128,
+) -> dict[str, u.Quantity | npt.NDArray]:
+    """Bin the data in pixels of phase-space coordinates (pos, vel) and return the
+    mean (or other moment) of the label values in each pixel.
 
     Parameters
     ----------
-    pos : quantity-like
-    vel : quantity-like
-    label : array-like
-    bins : tuple, dict
+    pos
+        The position values.
+    vel
+        The velocity values.
+    label
+        The label values.
+    bins
         A specification of the bins. This can either be a tuple, where the order
         is assumed to be (pos, vel), or a dictionary with keys "pos" and "vel".
-    label_err : array-like
-    units : UnitSystem (optional)
+    moment
+        The type of moment to compute. Currently only supports "mean".
+    label_err
+        The measurement error for each label value.
+    units
         The unit system to work in.
-    s : float (optional)
+    s
         The intrinsic scatter of label values within each pixel. If not provided,
         this will be estimated from the data.
-    s_N_thresh : int (optional)
+    s_N_thresh
         If the intrinsic scatter ``s`` is not specified, this sets the threshold for the
         number of objects per bin required to estimate the intrinsic scatter.
 
     Returns
     -------
-    binned_data : dict
+    dict
         Keys are "pos", "vel", "counts", "label", and "label_err".
     """
+    if moment != "mean":
+        msg = "Only the mean is currently supported."
+        raise NotImplementedError(msg)
+
     pre_err_state = np.geterr()
     np.seterr(divide="ignore", invalid="ignore")
 
@@ -206,7 +218,8 @@ def get_binned_label(
         s = np.nanmean(s_trials)
 
         if not np.isfinite(s):
-            raise ValueError("Failed to determine intrinsic scatter from label data")
+            msg = "Failed to determine intrinsic scatter from label data"
+            raise ValueError(msg)
 
     if np.all(label_err == 0):
         # No label errors provided

@@ -1,51 +1,55 @@
+"""Utilities for plotting torusimaging models and data."""
+
+__all__ = ["plot_data_models_residual", "plot_spline_functions"]
+
+import astropy.units as u
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 from astropy.convolution import Gaussian2DKernel, convolve
+from gala.units import UnitSystem
+
+from .model import TorusImaging1D
+from .model_spline import TorusImaging1DSpline
 
 
 def plot_data_models_residual(
-    binned_data,
-    model,
-    params_fit,
-    params_init=None,
-    smooth_residual=None,
-    vlim_residual=None,
-    residual_normalization=None,
-    usys=None,
-):
-    """
-    Make a 4 panel figure showing data (number counts of stars in z-vz), initial model,
-    fitted model, and residual of the fitted model
+    binned_data: dict[str, u.Quantity | npt.ArrayLike],
+    model: TorusImaging1D,
+    params_fit: dict,
+    params_init: dict | None = None,
+    smooth_residual: float | None = None,
+    vlim_residual: float | None = None,
+    residual_normalization: npt.ArrayLike | None = None,
+    usys: UnitSystem | None = None,
+) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
+    """Make a 4 panel figure showing data (number counts of stars in z-vz), initial
+    model, fitted model, and residual of the fitted model
 
     Parameters
     ----------
-    binned_data : dict
+    binned_data
         The binned data dictionary.
-    model : TorusImaging1D
+    model
         The model instance.
-    params_fit : dict
+    params_fit
         The optimized parameters, or the MAP parameters, or the parameters you would
         like to show.
-    params_init : dict, None (optional)
+    params_init
         The initial parameters. If specified, will plot the initial model as well.
-    smooth_residual : float, None (optional)
+    smooth_residual
         If specified (as a float), smooth the residual image by a Gaussian with kernel
         with set by this parameter.
-    vlim_residual : float (optional)
+    vlim_residual
         The vmin, vmax for the residual colormap are set using this value such that
         ``vmin=-vlim_residual`` and ``vmax=vlim_residual``.
-    residual_normalization : array-like, None (optional)
+    residual_normalization
         If specified, the residual is divided by this value. This is useful for
         plotting fractional residuals.
-    usys : gala.units.UnitSystem, None (optional)
+    usys
         The unit system to use for plotting. If None, will use the unit system of the
         model.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-    axes : matplotlib.axes.Axes
     """
     if usys is None:
         usys = model.units
@@ -55,14 +59,14 @@ def plot_data_models_residual(
         for k, v in binned_data.items()
     }
 
-    vlim = dict(
-        norm=mpl.colors.Normalize(
+    vlim = {
+        "norm": mpl.colors.Normalize(
             *np.percentile(
                 binned_data["label"][np.isfinite(binned_data["label"])], [1, 99]
             )
         ),
-        shading="auto",
-    )
+        "shading": "auto",
+    }
     model_func = model._get_label
 
     ncols = 3
@@ -97,12 +101,15 @@ def plot_data_models_residual(
     if residual_normalization is not None:
         resid = np.array((bd["label"] - model_H) / residual_normalization)
     else:
-        resid = np.array((bd["label"] - model_H))
+        resid = np.array(bd["label"] - model_H)
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
 
+    if vlim_residual is None:
+        vlim_residual = np.nanpercentile(np.abs(resid), 99)
+
     if not hasattr(vlim_residual, "__len__"):
-        vlim_residual = (-vlim_residual, vlim_residual)
+        vlim_residual = (-vlim_residual, vlim_residual)  # pylint: disable=E1130
 
     cs = axes[i + 1].pcolormesh(
         bd["vel"],
@@ -134,7 +141,18 @@ def plot_data_models_residual(
     return fig, axes
 
 
-def plot_spline_functions(model, params):
+def plot_spline_functions(
+    model: TorusImaging1DSpline, params: dict
+) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
+    """Plot the spline functions used in a ``TorusImaging1DSpline`` model.
+
+    Parameters
+    ----------
+    model
+        The model instance.
+    params
+        A dictionary of parameter values.
+    """
     r_e_grid = np.linspace(0, model._label_knots.max(), 128)
     e_vals = model._get_es(r_e_grid, params["e_params"])
 
@@ -143,7 +161,7 @@ def plot_spline_functions(model, params):
     ax = axes[0]
     sum_ = None
     for m, vals in e_vals.items():
-        (l,) = ax.plot(r_e_grid, vals, marker="", label=f"$e_{m}$")  # noqa
+        (l,) = ax.plot(r_e_grid, vals, marker="", label=f"$e_{m}$")  # noqa: E741
         ax.scatter(
             model._e_knots[m],
             model.e_funcs[m](model._e_knots[m], params["e_params"][m]["vals"]),
@@ -162,7 +180,7 @@ def plot_spline_functions(model, params):
 
     ax = axes[1]
     l_vals = model.label_func(r_e_grid, **params["label_params"])
-    (l,) = ax.plot(r_e_grid, l_vals, marker="")  # noqa
+    (l,) = ax.plot(r_e_grid, l_vals, marker="")  # noqa: E741
 
     l_vals = model.label_func(model._label_knots, **params["label_params"])
     ax.scatter(model._label_knots, l_vals, color=l.get_color())
@@ -211,7 +229,7 @@ def plot_cov_corner(cov, mean=None, labels=None, subplots_kw=None, ellipse_kw=No
     subplots_kw.setdefault("constrained_layout", True)
 
     fig, axes = plt.subplots(K - 1, K - 1, **subplots_kw)
-    print(K, np.shape(axes))
+
     for i in range(K - 1):
         for j in range(1, K):
             ax = axes[j - 1, i]

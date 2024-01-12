@@ -1,20 +1,50 @@
-.. TorusImaging documentation master file, created by
-   sphinx-quickstart on Sat Jul 22 12:06:59 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+TorusImaging
+============
 
-Welcome to TorusImaging's documentation!
-========================================
+TorusImaging is a Python package that implements *Orbital Torus Imaging* (OTI), a
+flexible framework for foliating projections of phase space with orbits and modeling
+stellar label data.
+This can be used in data-driven studies of dynamics to infer the mass distribution for
+the Milky Way without requiring a global model for the Milky Way or detailed modeling of
+the selection function of the input survey data.
+For example, see `Horta et al. 2024 <https://arxiv.org/abs/2312.07664>`_ for a set of
+applications to data, and `Price-Whelan et al. 2024 <tbd>`_ for a detailed description
+of the method.
+
+|
+
+.. image:: _static/torus.jpg
+   :width: 200
+   :alt: mmm donut
+
+
+Tutorials
+---------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+    :maxdepth: 1
+    :glob:
+
+    tutorials/*
 
 
+API
+---
 
-Indices and tables
-==================
+.. automodapi:: torusimaging
+    :no-inheritance-diagram:
+    :headings: "*^"
+    :no-main-docstr:
+    :inherited-members:
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+|
+
+.. automodapi:: torusimaging.data
+    :no-inheritance-diagram:
+    :headings: "*^"
+
+|
+
+.. automodapi:: torusimaging.plot
+    :no-inheritance-diagram:
+    :headings: "*^"

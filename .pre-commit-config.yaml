@@ -1,33 +1,52 @@
+ci:
+  autoupdate_commit_msg: "chore: update pre-commit hooks"
+  autofix_commit_msg: "style: pre-commit fixes"
+
 repos:
+  - repo: https://github.com/adamchainz/blacken-docs
+    rev: "1.16.0"
+    hooks:
+      - id: blacken-docs
+        additional_dependencies: [black==23.*]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: "v4.5.0"
     hooks:
+      - id: check-merge-conflict
       - id: end-of-file-fixer
-        # Makes sure files end in a newline and only a newline.
-        exclude: ".*(plots.*|data.*|extern.*|licenses.*|_parsetab.py)$"
       - id: trailing-whitespace
-        # Trims trailing whitespace.
-        exclude: ".*(plots.*|data.*|extern.*|licenses.*|_parsetab.py|test_cds.py)$"
 
-  - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: "v3.1.0"
     hooks:
-      - id: isort
-        name: isort (python)
-        additional_dependencies: [toml]
+      - id: prettier
+        types_or: [yaml, markdown, html, css, scss, javascript, json]
+        args: [--prose-wrap=always]
 
-  - repo: https://github.com/psf/black
-    rev: 23.7.0
-    hooks:
-      - id: black
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: "v0.0.280"
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: "v0.1.6"
     hooks:
       - id: ruff
-        args: ["--fix"]
+        args: ["--fix", "--show-fixes"]
+      - id: ruff-format
 
-  - repo: https://github.com/kynan/nbstripout
-    rev: 0.6.1
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: "v1.7.1"
+  #   hooks:
+  #     - id: mypy
+  #       files: src|tests
+  #       args: []
+  #       additional_dependencies:
+  #         - pytest
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.15
     hooks:
-      - id: nbstripout
+      - id: validate-pyproject
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.27.0
+    hooks:
+      - id: check-dependabot
+      - id: check-github-workflows
+      - id: check-readthedocs

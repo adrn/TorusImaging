@@ -14,10 +14,7 @@ def simpson(y, x):
     """
 
     num_points = len(x)
-    if num_points % 2 == 0:
-        n_odd = num_points - 1
-    else:
-        n_odd = num_points
+    n_odd = num_points - 1 if num_points % 2 == 0 else num_points
 
     dx = jnp.diff(x)[0]
     weights_first = jnp.asarray([1.0])
@@ -29,8 +26,7 @@ def simpson(y, x):
     if n_odd == num_points:  # odd
         return integral
 
-    else:  # even
-        return integral + 0.5 * dx * (y[-1] + y[-2])
+    return integral + 0.5 * dx * (y[-1] + y[-2])
 
 
 @jax.jit
@@ -42,10 +38,7 @@ def ln_simpson(ln_y, x):
     """
 
     num_points = len(x)
-    if num_points % 2 == 0:
-        n_odd = num_points - 1
-    else:
-        n_odd = num_points
+    n_odd = num_points - 1 if num_points % 2 == 0 else num_points
 
     dx = jnp.diff(x)[0]
     weights_first = jnp.asarray([1.0])
@@ -57,7 +50,6 @@ def ln_simpson(ln_y, x):
     if n_odd == num_points:  # odd
         return ln_integral
 
-    else:  # even
-        return jnp.logaddexp(
-            ln_integral, jnp.log(0.5 * dx) + jnp.logaddexp(ln_y[-1], ln_y[-2])
-        )
+    return jnp.logaddexp(
+        ln_integral, jnp.log(0.5 * dx) + jnp.logaddexp(ln_y[-1], ln_y[-2])
+    )
