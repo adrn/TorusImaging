@@ -1,61 +1,51 @@
-import copy
+import pathlib
 
-import pytest
+import jax
+import numpy as np
+from gala.units import galactic
 
-from torusimaging.model import DensityOrbitModel, _e_param_names
+import torusimaging as oti
 
-models = []
-states = []
-
-model = DensityOrbitModel(e_signs={2: 1.0, 4: -1.0})
-models.append(model)
-
-valid_state = {}
-valid_state["e_params"] = {m: {k: 1.0 for k in _e_param_names} for m in [2, 4]}
-valid_state["ln_dens_params"] = {"f0": 1.0, "f3": -1, "alpha": 0.5, "x0": 1.0}
-valid_state["Omega"] = 0.1
-valid_state["z0"] = 0.0
-valid_state["vz0"] = 0.0
-states.append(valid_state)
+jax.config.update("jax_enable_x64", True)
 
 
-@pytest.mark.parametrize(("model", "valid_state"), zip(models, states))
-def test_density_model_validate(model, valid_state):
-    # This should work:
-    model.state = valid_state
-    model._validate_state()
+def test_harmonic_oscillator():
+    data_path = pathlib.Path("tests/data/sho_test_data.npz").absolute()
+    bdata = np.load(data_path)
+    bdata = {k: bdata[k] for k in bdata}
 
-    # These should fail:
-    for k in valid_state:
-        tmp_state = valid_state.copy()
-        tmp_state.pop(k)
+    bdata["pos"] *= galactic["length"]
+    bdata["vel"] *= galactic["velocity"]
 
-        model.state = tmp_state
-        with pytest.raises(RuntimeError):
-            model._validate_state()
+    model, bounds, init_params = oti.TorusImaging1DSpline.auto_init(
+        bdata,
+        label_knots=8,
+        e_knots={2: 8},
+        label_l2_sigma=1.0,
+        label_smooth_sigma=0.5,
+        e_l2_sigmas={2: 0.5},
+        e_smooth_sigmas={2: 0.5},
+    )
 
-    # These should also fail: remove a single key from the "e_params" sub-dictionaries
-    for m in valid_state["e_params"]:
-        tmp_state = copy.deepcopy(valid_state)
-        for sub_k in valid_state["e_params"][m]:
-            tmp_state["e_params"][m].pop(sub_k)
-            model.state = tmp_state
-            with pytest.raises(RuntimeError):
-                model._validate_state()
+    data_kw = {
+        "pos": bdata["pos"],
+        "vel": bdata["vel"],
+        "label": bdata["label"],
+        "label_err": bdata["label_err"],
+    }
+    mask = (
+        np.isfinite(bdata["label"])
+        & np.isfinite(bdata["label_err"])
+        & (bdata["label_err"] > 0)
+    )
+    data_kw = {k: v[mask] for k, v in data_kw.items()}
 
-    # These should also fail: remove a single key from the "*_params" dictionaries
-    name = f"{model.fit_name}_params"
-    for _ in valid_state[name]:
-        tmp_state = copy.deepcopy(valid_state)
-        for sub_k in valid_state[name]:
-            tmp_state[name].pop(sub_k)
-            model.state = tmp_state
-            with pytest.raises(RuntimeError):
-                model._validate_state()
+    test_obj = model.objective_gaussian(init_params, **data_kw)
+    assert np.isfinite(test_obj)
 
+    init_params["pos0"] = 0.5
+    init_params["vel0"] = 0.005
 
-@pytest.mark.parametrize(("model", "valid_state"), zip(models, states))
-def test_density_model_get_params(model, valid_state):
-    model = model.copy()
-    model.state = valid_state
-    model.get_params()
+    res = model.optimize(init_params, objective="gaussian", bounds=bounds, **data_kw)
+    assert res.state.success
+    print(res.params, res.state.iter_num, res.state.success)

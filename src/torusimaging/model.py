@@ -558,7 +558,7 @@ class TorusImaging1D:
             **jaxopt_kwargs,
         )
 
-        data = {k: jax.array(v) for k, v in data.items()}
+        data = {k: jnp.array(v) for k, v in data.items()}
 
         if bounds is not None:
             # Detect packed bounds (a single dict):

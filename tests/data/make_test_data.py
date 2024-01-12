@@ -61,9 +61,10 @@ def harmonic_oscillator():
         "vel": bdata_label["vel"].decompose(galactic).value,
         "label": bdata_label["label"],
         "label_err": bdata_label["label_err"],
+        "counts": bdata_label["counts"],
     }
 
-    np.savez("sho_test_data.npy", **test_data_label)
+    np.savez("sho_test_data.npz", **test_data_label)
 
 
 if __name__ == "__main__":
