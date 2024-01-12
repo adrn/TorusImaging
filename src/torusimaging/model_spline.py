@@ -176,7 +176,7 @@ class TorusImaging1DSpline(TorusImaging1D):
         """
         import astropy.units as u
         import numpy as np
-        from astropy.constants import G
+        from astropy.constants import G  # pylint: disable = no-name-in-module
 
         bounds = {}
 

@@ -105,8 +105,11 @@ def plot_data_models_residual(
     if smooth_residual is not None:
         resid = convolve(resid, Gaussian2DKernel(smooth_residual))
 
+    if vlim_residual is None:
+        vlim_residual = np.nanpercentile(np.abs(resid), 99)
+
     if not hasattr(vlim_residual, "__len__"):
-        vlim_residual = (-vlim_residual, vlim_residual)
+        vlim_residual = (-vlim_residual, vlim_residual)  # pylint: disable=E1130
 
     cs = axes[i + 1].pcolormesh(
         bd["vel"],

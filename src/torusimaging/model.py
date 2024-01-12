@@ -840,7 +840,7 @@ class TorusImaging1D:
         warmup = blackjax.window_adaptation(blackjax.nuts, logprob)
         (state, parameters), _ = warmup.run(rng_key, p0, num_steps=num_warmup)
 
-        kernel = blackjax.nuts(logprob, **parameters).step
+        kernel = blackjax.nuts(logprob, **parameters).step  # pylint: disable=no-member
         states = inference_loop(rng_key, kernel, state, num_steps)
 
         # Get the pytree structure of a single sample based on the starting point:

@@ -37,7 +37,9 @@ dependencies = [
   "jax",
   "jaxlib",
   "jaxopt",
-  "jax_cosmo"
+  "jax_cosmo",
+  "matplotlib",
+  "blackjax"
 ]
 
 [project.optional-dependencies]
