@@ -2,7 +2,7 @@
 
 [![Actions Status][actions-badge]][actions-link]
 
-![mmm](https://github.com/adrn/TorusImaging/blob/main/docs/_static/torus.jpg?raw=true "donut")
+<img src="https://github.com/adrn/TorusImaging/blob/main/docs/_static/torus.jpg?raw=true" width=250>
 
 <!-- SPHINX-START -->
 
