@@ -40,21 +40,22 @@ class TorusImaging1D:
     of freedom phase space with position coordinate ``q`` and velocity coordinate ``p``.
 
     Notation:
-    - :math:`\Omega_0` or ``Omega0``: A scale frequency used to compute the
-        elliptical radius ``r_e``. This is the asymptotic orbital frequency at zero
-        action.
-    - :math:`r_e` or ``r_e``: The elliptical radius
-        :math:`r_e = \sqrt{q^2\, \Omega_0 + p^2 \, \Omega_0^{-1}}`.
-    - :math:`\theta_e` or ``theta_e``: The elliptical angle defined as
-        :math:`\tan{\theta_e} = \frac{q}{p}\,\Omega_0`.
-    - :math:`r` or ``r``: The distorted elliptical radius
-        :math:`r = r_e \, f(r_e, \theta_e)`, which is close  to :math:`\sqrt{J}` (the
-        action) and so we sometimes call it the "proxy action" below. :math:`f(\cdot)`
-        is the distortion function defined below.
-    - :math:`f(r_e, \theta_e)`: The distortion function is a Fourier expansion, \
-        defined as: :math:`f(r_e, \theta_e) = 1 + \sum_m e_m(r_e)\,\cos(m\,\theta_e)`
-    - :math:`J` or ``J``: The action.
-    - :math:`\theta` or ``theta``: The conjugate angle.
+
+    * :math:`\Omega_0` or ``Omega0``: A scale frequency used to compute the
+      elliptical radius ``r_e``. This is the asymptotic orbital frequency at zero
+      action.
+    * :math:`r_e` or ``r_e``: The elliptical radius
+      :math:`r_e = \sqrt{q^2\, \Omega_0 + p^2 \, \Omega_0^{-1}}`.
+    * :math:`\theta_e` or ``theta_e``: The elliptical angle defined as
+      :math:`\tan{\theta_e} = \frac{q}{p}\,\Omega_0`.
+    * :math:`r` or ``r``: The distorted elliptical radius
+      :math:`r = r_e \, f(r_e, \theta_e)`, which is close  to :math:`\sqrt{J}` (the
+      action) and so we sometimes call it the "proxy action" below. :math:`f(\cdot)`
+      is the distortion function defined below.
+    * :math:`f(r_e, \theta_e)`: The distortion function is a Fourier expansion,
+      defined as: :math:`f(r_e, \theta_e) = 1 + \sum_m e_m(r_e)\,\cos(m\,\theta_e)`
+    * :math:`J` or ``J``: The action.
+    * :math:`\theta` or ``theta``: The conjugate angle.
 
     Parameters
     ----------
@@ -67,10 +68,10 @@ class TorusImaging1D:
         of the distortion term (for the distortion function), and values should be
         Python callable objects that can be passed to `jax.jit()`. The first argument of
         each of these functions should be the elliptical radius :math:`r_e` or ``re``.
-    regularization_func : callable (optional)
+    regularization_func
         An optional function that computes a regularization term to add to the
         log-likelihood function when optimizing.
-    units : `gala.units.UnitSystem` (optional)
+    units
         The unit system to work in. Default is to use the "galactic" unit system from
         Gala: (kpc, Myr, Msun, radian).
 
