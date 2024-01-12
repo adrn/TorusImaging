@@ -2,7 +2,7 @@
 
 [![Actions Status][actions-badge]][actions-link]
 
-![mmm](https://github.com/adrn/TorusImaging/blob/main/docs/_static/torus.webp?raw=true "donut")
+![mmm](https://github.com/adrn/TorusImaging/blob/main/docs/_static/torus.jpg?raw=true "donut")
 
 <!-- SPHINX-START -->
 
