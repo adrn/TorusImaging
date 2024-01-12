@@ -26,6 +26,7 @@ def test_harmonic_oscillator():
         e_l2_sigmas={2: 0.5},
         e_smooth_sigmas={2: 0.5},
     )
+    init_params["ln_Omega0"] = np.log(0.07)
 
     data_kw = {
         "pos": bdata["pos"],
@@ -43,9 +44,12 @@ def test_harmonic_oscillator():
     test_obj = model.objective_gaussian(init_params, **data_kw)
     assert np.isfinite(test_obj)
 
-    init_params["pos0"] = 0.5
+    init_params["pos0"] = 0.1
     init_params["vel0"] = 0.005
 
     res = model.optimize(init_params, objective="gaussian", bounds=bounds, **data_kw)
     assert res.state.success
     print(res.params, res.state.iter_num, res.state.success)
+    assert np.isclose(res.params["pos0"], 0.0, atol=1e-3)
+    assert np.isclose(res.params["vel0"], 0.0, atol=1e-3)
+    assert np.isclose(res.params["ln_Omega0"], np.log(0.08), atol=1e-1)
