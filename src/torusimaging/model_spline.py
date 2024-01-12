@@ -1,40 +1,46 @@
 import inspect
+from collections.abc import Callable
 from functools import partial
-from typing import Callable, Optional
+from typing import Any
 
 import jax
 import jax.numpy as jnp
+import jax.typing as jtp
 import numpy.typing as npt
 from gala.units import UnitSystem, galactic
 from scipy.stats import binned_statistic
 
 from torusimaging import data
-from torusimaging.model import TorusImaging1D
+from torusimaging.model import TorusImaging1D, TorusImaging1DParams
 from torusimaging.model_helpers import monotonic_quadratic_spline
 
 __all__ = ["TorusImaging1DSpline"]
 
 
-def label_func_base(r, label_vals, knots):
+def label_func_base(
+    r: jtp.ArrayLike, label_vals: jtp.ArrayLike, knots: jtp.ArrayLike
+) -> jax.Array:
     return monotonic_quadratic_spline(knots, label_vals, r)
 
 
-def e_func_base(r_e, vals, sign, knots):
+def e_func_base(
+    r_e: jtp.ArrayLike, vals: jtp.ArrayLike, sign: float, knots: jtp.ArrayLike
+) -> jax.Array:
     return sign * monotonic_quadratic_spline(
         knots, jnp.concatenate((jnp.array([0.0]), jnp.exp(vals))), r_e
     )
 
 
 def regularization_func_default(
-    model,
-    params,
+    model: TorusImaging1D,
+    params: TorusImaging1DParams,
     label_l2_sigma: float,
     label_smooth_sigma: float,
-    e_l2_sigmas: dict,
-    e_smooth_sigmas: dict,
+    e_l2_sigmas: dict[int, float],
+    e_smooth_sigmas: dict[int, float],
     dacc_dpos_scale: float = 1e-4,
     dacc_strength: float = 1.0,
-):
+) -> jax.Array:
     p = 0.0
 
     if dacc_strength > 0:
@@ -74,32 +80,34 @@ def regularization_func_default(
 
 
 class TorusImaging1DSpline(TorusImaging1D):
+    """A version of the ``TorusImaging1D`` model that uses splines to model the label function and the Fourier coefficient :math:`e_m` functions.
+
+    Parameters
+    ----------
+    label_knots
+        The spline knot locations for the label function.
+    e_knots
+        A dictionary keyed by m integers with values as the spline knot locations
+        for the e functions.
+    e_signs
+        A dictionary keyed by m integers with values as the signs of the e
+        functions.
+    regularization_func
+        A function that takes in a ``TorusImaging1DSpline`` instance and a parameter
+        dictionary and returns an additional regularization term to add to the
+        log-likelihood.
+    units
+        A Gala :class:`gala.units.UnitSystem` instance.
+    """
+
     def __init__(
         self,
-        label_knots: jax.typing.ArrayLike,
-        e_knots: dict[int, jax.typing.ArrayLike],
+        label_knots: jtp.ArrayLike,
+        e_knots: dict[int, jtp.ArrayLike],
         e_signs: dict[int, float | int],
-        regularization_func: Optional[Callable] = None,
+        regularization_func: Callable[[Any], jax.Array] | None = None,
         units: UnitSystem = galactic,
     ):
-        """
-        Parameters
-        ----------
-        label_knots
-            The spline knot locations for the label function.
-        e_knots
-            A dictionary keyed by m integers with values as the spline knot locations
-            for the e functions.
-        e_signs
-            A dictionary keyed by m integers with values as the signs of the e
-            functions.
-        regularization_func
-            A function that takes in a ``TorusImaging1DSpline`` instance and a parameter
-            dictionary and returns an additional regularization term to add to the
-            log-likelihood.
-        units
-            A Gala `gala.units.UnitSystem` instance.
-        """
         self._label_knots = jnp.array(label_knots)
         label_func = partial(label_func_base, knots=self._label_knots)
 
@@ -127,17 +135,17 @@ class TorusImaging1DSpline(TorusImaging1D):
     @classmethod
     def auto_init(
         cls,
-        binned_data: dict[str, npt.ArrayLike],
+        binned_data: dict[str, jtp.ArrayLike],
         label_knots: int | npt.ArrayLike,
         e_knots: dict[int, int | npt.ArrayLike],
-        e_signs: Optional[dict[int, float | int]] = None,
-        regularization_func: Optional[Callable | bool] = None,
+        e_signs: dict[int, float | int] | None = None,
+        regularization_func: Callable[[Any], jax.Array] | bool | None = None,
         units: UnitSystem = galactic,
         label_knots_spacing_power: float = 1.0,
         e_knots_spacing_power: float = 1.0,
-        re_max_factor=1.0,
-        **kwargs,
-    ):
+        re_max_factor: float = 1.0,
+        **kwargs: Any,
+    ) -> tuple["TorusImaging1DSpline", dict[str, Any], TorusImaging1DParams]:
         """
         Parameters
         ----------
@@ -155,22 +163,16 @@ class TorusImaging1DSpline(TorusImaging1D):
             A function that takes in two arguments: a ``TorusImaging1DSpline`` instance
             and a parameter dictionary and returns an additional regularization term to
             add to the log-likelihood. If not specified, this defaults to the
-            ``torusimaging.model_spline.regularization_function_default`` and additional
-            arguments to that function must be specified here. The default
+            :func:`torusimaging.model_spline.regularization_function_default` and
+            additional arguments to that function must be specified here. The default
             regularization function tries to enforce smoothness on the splines, and that
             the density is positive. It requires the following keyword arguments:
             ``label_l2_sigma, label_smooth_sigma, e_l2_sigmas, e_smooth_sigmas``. If
             `False`, no regularization is applied.
         units
-            A Gala `gala.units.UnitSystem` instance.
+            A Gala :class:`gala.units.UnitSystem` instance.
         **kwargs
             All other keyword arguments are passed to the constructor.
-
-        Returns
-        -------
-        model : TorusImaging1DSpline
-        bounds : dict
-        init_params : dict
         """
         import astropy.units as u
         import numpy as np
@@ -335,7 +337,9 @@ class TorusImaging1DSpline(TorusImaging1D):
 
         return obj, bounds, init_params
 
-    def estimate_init_params(self, binned_data, bounds):
+    def estimate_init_params(
+        self, binned_data: dict[str, npt.ArrayLike], bounds: dict[str, Any]
+    ) -> TorusImaging1DParams:
         import numpy as np
 
         Omega0 = data.estimate_Omega(binned_data).decompose(self.units).value

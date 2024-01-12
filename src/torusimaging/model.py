@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import partial
-from typing import Any, Literal, Optional
+from typing import Any, Literal, NewType
 from warnings import warn
 
 import astropy.table as at
@@ -14,6 +14,7 @@ from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
 from jaxopt import Bisection
 from jaxopt.base import OptStep
+from typing_extensions import TypedDict
 
 from torusimaging.jax_helpers import simpson
 
@@ -22,10 +23,21 @@ __all__ = ["TorusImaging1D"]
 length_pt = u.get_physical_type("length")
 velocity_pt = u.get_physical_type("speed")
 
+EParams = NewType("EParams", dict[int, dict[str, jax.Array | float]])
+
+
+class TorusImaging1DParams(TypedDict, total=False):
+    pos0: jax.Array | float
+    vel0: jax.Array | float
+    ln_Omega0: jax.Array | float
+    e_params: EParams
+    label_params: dict[str, jax.Array | float]
+
 
 class TorusImaging1D:
-    r"""This implementation assumes that you are working in a 1 degree of freedom
-    phase space with position coordinate ``q`` and velocity coordinate ``p``.
+    r"""A flexible and customizable interface for fitting and MCMC sampling an Orbital
+    Torus Imaging model. This implementation assumes that you are working in a 1 degree
+    of freedom phase space with position coordinate ``q`` and velocity coordinate ``p``.
 
     Notation:
     - :math:`\Omega_0` or ``Omega0``: A scale frequency used to compute the
@@ -87,12 +99,12 @@ class TorusImaging1D:
     @partial(jax.jit, static_argnames=["self"])
     def _get_elliptical_coords(
         self,
-        pos: float | jtp.Array,
-        vel: float | jtp.Array,
+        pos: float | jax.Array,
+        vel: float | jax.Array,
         pos0: float,
         vel0: float,
         ln_Omega0: float,
-    ) -> tuple[float | jtp.Array, float | jtp.Array]:
+    ) -> tuple[float | jax.Array, float | jax.Array]:
         r"""Compute the raw elliptical radius :math:`r_e` (``r_e``) and angle
         :math:`\theta_e'` (``theta_e``)
         """
@@ -105,9 +117,7 @@ class TorusImaging1D:
         return r_e, t_e
 
     @partial(jax.jit, static_argnames=["self"])
-    def _get_es(
-        self, r_e: float, e_params: dict[int, dict[str, float | jtp.Array]]
-    ) -> dict[int, float]:
+    def _get_es(self, r_e: float, e_params: EParams) -> dict[int, float]:
         """Compute the Fourier m-order distortion coefficients"""
         es = {}
         for m, pars in e_params.items():
@@ -119,8 +129,8 @@ class TorusImaging1D:
         self,
         r_e: float,
         theta_e: float,
-        e_params: dict[int, dict[str, float | jtp.Array]],
-    ) -> float:
+        e_params: EParams,
+    ) -> jax.Array:
         """Compute the distorted radius :math:`r`"""
         es = self._get_es(r_e, e_params)
         return r_e * (
@@ -135,8 +145,8 @@ class TorusImaging1D:
         self,
         r_e: float,
         theta_e: float,
-        e_params: dict[int, dict[str, float | jtp.Array]],
-    ) -> float:
+        e_params: EParams,
+    ) -> jax.Array:
         """Compute the phase angle"""
         es = self._get_es(r_e, e_params)
         # TODO: why is the π/2 needed below??
@@ -152,14 +162,12 @@ class TorusImaging1D:
         self,
         r: float,
         theta_e: float,
-        e_params: dict[int, dict[str, float | jtp.Array]],
+        e_params: EParams,
         Bisection_kwargs: dict[str, Any],
     ) -> float:
         """Compute the elliptical radius :math:`r_e` by inverting the distortion
         transformation from :math:`r`
         """
-        if Bisection_kwargs is None:
-            Bisection_kwargs = {}
         Bisection_kwargs = dict(Bisection_kwargs)
         Bisection_kwargs.setdefault("lower", 0.0)
         Bisection_kwargs.setdefault("upper", 1.0)
@@ -174,16 +182,16 @@ class TorusImaging1D:
             check_bracket=False,
             **Bisection_kwargs,
         )
-        return bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params
+        return float(bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params)
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_pos(
         self,
         r: float,
         theta_e: float,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
         Bisection_kwargs: dict[str, Any],
-    ) -> float:
+    ) -> jax.Array:
         """Compute the position given the distorted radius and elliptical angle"""
         r_e = self._get_r_e(r, theta_e, params["e_params"], Bisection_kwargs)
         return r_e * jnp.sin(theta_e) / jnp.sqrt(jnp.exp(params["ln_Omega0"]))
@@ -193,9 +201,9 @@ class TorusImaging1D:
         self,
         r: float,
         theta_e: float,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
         Bisection_kwargs: dict[str, Any],
-    ) -> float:
+    ) -> jax.Array:
         """Compute the velocity given the distorted radius and elliptical angle"""
         rzp = self._get_r_e(r, theta_e, params["e_params"], Bisection_kwargs)
         return rzp * jnp.cos(theta_e) * jnp.sqrt(jnp.exp(params["ln_Omega0"]))
@@ -205,8 +213,8 @@ class TorusImaging1D:
         self,
         pos: float,
         vel: float,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
-    ) -> float:
+        params: TorusImaging1DParams,
+    ) -> jax.Array:
         r_e, th_e = self._get_elliptical_coords(
             pos,
             vel,
@@ -222,7 +230,7 @@ class TorusImaging1D:
         self,
         pos: float,
         vel: float,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
         N_grid: int,
         Bisection_kwargs: dict[str, Any],
     ) -> tuple[float, float, float]:
@@ -260,9 +268,7 @@ class TorusImaging1D:
     _get_T_J_theta = jax.vmap(_get_T_J_theta, in_axes=[None, 0, 0, None, None, None])
 
     @partial(jax.jit, static_argnames=["self"])
-    def _get_de_dr_es(
-        self, r_e: float, e_params: dict[int, dict[str, float | jtp.Array]]
-    ) -> dict[int, float]:
+    def _get_de_dr_es(self, r_e: float, e_params: EParams) -> dict[int, float]:
         """Compute the derivatives of the Fourier m-order distortion coefficient
         functions
         """
@@ -279,7 +285,7 @@ class TorusImaging1D:
         self,
         pos: u.Quantity[length_pt],
         vel: u.Quantity[velocity_pt],
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
     ) -> tuple[u.Quantity, u.Quantity]:
         """Compute the elliptical radius :math:`r_e` (``r_e``) and angle
         :math:`\theta_e'` (``theta_e``)
@@ -315,7 +321,7 @@ class TorusImaging1D:
         self,
         pos: u.Quantity[length_pt],
         vel: u.Quantity[velocity_pt],
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
         N_grid: int = 32,
         Bisection_kwargs: dict[str, Any] | None = None,
     ) -> at.QTable:
@@ -335,6 +341,10 @@ class TorusImaging1D:
         """
         x = pos.decompose(self.units).value
         v = vel.decompose(self.units).value
+
+        if Bisection_kwargs is None:
+            Bisection_kwargs = {}
+
         T, J, th = self._get_T_J_theta(x, v, params, N_grid, Bisection_kwargs)
 
         tbl = at.QTable()
@@ -349,8 +359,8 @@ class TorusImaging1D:
     def _get_acc(
         self,
         pos: float,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
-    ) -> float:
+        params: TorusImaging1DParams,
+    ) -> jax.Array:
         r_e, _ = self._get_elliptical_coords(
             pos,
             0.0,
@@ -386,7 +396,7 @@ class TorusImaging1D:
     def get_acceleration(
         self,
         pos: u.Quantity[length_pt],
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
     ) -> u.Quantity:
         """Compute the acceleration as a function of position in the limit as velocity
         goes to zero
@@ -410,7 +420,7 @@ class TorusImaging1D:
     def get_acceleration_deriv(
         self,
         pos: u.Quantity[length_pt],
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
+        params: TorusImaging1DParams,
     ) -> u.Quantity:
         """Compute the derivative of the acceleration with respect to position as a
         function of position in the limit as velocity goes to zero
@@ -434,8 +444,8 @@ class TorusImaging1D:
         self,
         pos: u.Quantity[length_pt],
         vel: u.Quantity[velocity_pt],
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
-    ) -> jtp.Array:
+        params: TorusImaging1DParams,
+    ) -> jax.Array:
         """Compute the model predicted label value given the input phase-space
         coordinates
         """
@@ -446,14 +456,17 @@ class TorusImaging1D:
     @partial(jax.jit, static_argnames=["self"])
     def ln_poisson_likelihood(
         self,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
-        pos: u.Quantity[length_pt],
-        vel: u.Quantity[velocity_pt],
-        counts: npt.ArrayLike,
-    ) -> jtp.Array:
+        params: TorusImaging1DParams,
+        pos: jax.Array,
+        vel: jax.Array,
+        counts: jax.Array,
+    ) -> jax.Array:
         """Compute the log-likelihood of the Poisson likelihood function. This should
         be used when the label you are modeling is the log-number of stars per pixel,
         i.e. the phase-space density itself.
+
+        Note: the input position and velocity arrays must already be converted to the
+        unit system of the model.
         """
         # Expected number:
         ln_Lambda = self._get_label(pos, vel, params)
@@ -464,23 +477,40 @@ class TorusImaging1D:
     @partial(jax.jit, static_argnames=["self"])
     def ln_gaussian_likelihood(
         self,
-        params: dict[str, float | jtp.Array | dict[int, dict[str, float | jtp.Array]]],
-        pos: u.Quantity[length_pt],
-        vel: u.Quantity[velocity_pt],
-        label: npt.ArrayLike,
-        label_err: npt.ArrayLike,
-    ) -> jtp.Array:
-        """Compute the log-likelihood of the Gaussian likelihood function."""
+        params: TorusImaging1DParams,
+        pos: jax.Array,
+        vel: jax.Array,
+        label: jax.Array,
+        label_err: jax.Array,
+    ) -> jax.Array:
+        """Compute the log-likelihood of the Gaussian likelihood function.
+
+        Note: the input position and velocity arrays must already be converted to the
+        unit system of the model.
+        """
         model_label = self._get_label(pos, vel, params)
         return -0.5 * jnp.nansum((label - model_label) ** 2 / label_err**2)
 
     @partial(jax.jit, static_argnames=["self"])
-    def objective_poisson(self, params, pos, vel, counts):
+    def objective_poisson(
+        self,
+        params: TorusImaging1DParams,
+        pos: jax.Array,
+        vel: jax.Array,
+        counts: npt.ArrayLike,
+    ):
         f_val = self.ln_poisson_likelihood(params, pos, vel, counts)
         return -(f_val - self.regularization_func(self, params)) / pos.size
 
     @partial(jax.jit, static_argnames=["self"])
-    def objective_gaussian(self, params, pos, vel, label, label_err):
+    def objective_gaussian(
+        self,
+        params: TorusImaging1DParams,
+        pos: jax.Array,
+        vel: jax.Array,
+        label: jax.Array,
+        label_err: jax.Array,
+    ):
         f_val = self.ln_gaussian_likelihood(params, pos, vel, label, label_err)
         return -(f_val - self.regularization_func(self, params)) / pos.size
 
@@ -490,7 +520,7 @@ class TorusImaging1D:
         objective: Literal["poisson", "gaussian"],
         bounds: tuple[dict] | None = None,
         jaxopt_kwargs: dict | None = None,
-        **data: npt.ArrayLike,
+        **data: u.Quantity | jtp.ArrayLike,
     ) -> OptStep:
         """Optimize the model parameters given the input data using
         `jaxopt.ScipyboundedMinimize`.
@@ -526,6 +556,8 @@ class TorusImaging1D:
             fun=getattr(self, f"objective_{objective}"),
             **jaxopt_kwargs,
         )
+
+        data = {k: jax.array(v) for k, v in data.items()}
 
         if bounds is not None:
             # Detect packed bounds (a single dict):
@@ -573,7 +605,9 @@ class TorusImaging1D:
 
         return bounds_l, bounds_r
 
-    def check_e_funcs(self, e_params: dict, r_e_max: float) -> tuple[bool, npt.Array]:
+    def check_e_funcs(
+        self, e_params: EParams, r_e_max: float
+    ) -> tuple[bool, npt.NDArray]:
         """Check that the parameter values and functions used for the e functions are
         valid given the condition that d(r)/d(r_e) > 0.
         """
@@ -615,7 +649,7 @@ class TorusImaging1D:
 
     def get_crlb(
         self,
-        params: dict[str, dict | npt.ArrayLike],
+        params: TorusImaging1DParams,
         data: dict[str, npt.ArrayLike],
         objective: str = "gaussian",
         inv: bool = False,
@@ -650,7 +684,7 @@ class TorusImaging1D:
 
     def get_crlb_uncertainties(
         self,
-        params: dict[str, dict | npt.ArrayLike],
+        params: TorusImaging1DParams,
         data: dict[str, npt.ArrayLike],
         objective: str = "gaussian",
     ) -> dict[str, dict | npt.ArrayLike]:
@@ -677,11 +711,11 @@ class TorusImaging1D:
 
     def get_crlb_error_samples(
         self,
-        params: dict[str, dict | npt.ArrayLike],
+        params: TorusImaging1DParams,
         data: dict[str, npt.ArrayLike],
         objective: str = "gaussian",
         size: int = 1,
-        seed: Optional[int] = None,
+        seed: int | None = None,
         list_of_samples: bool = True,
     ) -> list[dict] | dict[str, dict | npt.ArrayLike]:
         """Generate Gaussian samples of parameter values centered on the input parameter
@@ -728,7 +762,7 @@ class TorusImaging1D:
         self,
         binned_data: dict,
         p0: dict,
-        bounds: Optional[tuple[dict]] = None,
+        bounds: tuple[dict] | None = None,
         rng_seed: int = 0,
         num_steps: int = 1000,
         num_warmup: int = 1000,
@@ -821,7 +855,9 @@ class TorusImaging1D:
         return states, mcmc_samples
 
 
-def inference_loop(rng_key, kernel, initial_state, num_samples):
+def inference_loop(
+    rng_key: jax.random.PRNGKey, kernel: Any, initial_state: Any, num_samples: int
+) -> Any:
     @jax.jit
     def one_step(state, rng_key):
         state, _ = kernel(rng_key, state)
