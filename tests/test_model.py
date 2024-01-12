@@ -52,4 +52,4 @@ def test_harmonic_oscillator():
     print(res.params, res.state.iter_num, res.state.success)
     assert np.isclose(res.params["pos0"], 0.0, atol=1e-3)
     assert np.isclose(res.params["vel0"], 0.0, atol=1e-3)
-    assert np.isclose(res.params["ln_Omega0"], np.log(0.08), atol=1e-1)
+    assert np.isclose(res.params["ln_Omega0"], np.log(0.08), atol=1e-2)
