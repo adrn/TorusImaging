@@ -128,6 +128,7 @@ ignore_missing_imports = true
 module = [
   "astropy.*",
   "numpy.*",
+  "scipy.*",
   "astroquery.*",
   "dustmaps.*",
   "jaxopt.*",
