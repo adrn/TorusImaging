@@ -1,6 +1,5 @@
 """Utilities for working with kinematic and stellar label data."""
 
-
 __all__ = ["get_binned_counts", "get_binned_label"]
 
 
@@ -12,7 +11,10 @@ from gala.units import UnitSystem
 from scipy.stats import binned_statistic_2d
 
 
-def _get_bins_tuple(bins, units=None):
+def _get_bins_tuple(
+    bins: dict[str, npt.ArrayLike] | tuple[npt.ArrayLike, npt.ArrayLike],
+    units: UnitSystem | None = None,
+) -> list[npt.NDArray]:
     if isinstance(bins, dict):
         bins = (bins["pos"], bins["vel"])
 

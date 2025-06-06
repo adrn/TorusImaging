@@ -12,11 +12,10 @@ import jaxopt
 import numpy.typing as npt
 from gala.units import UnitSystem, galactic
 from jax.scipy.special import gammaln
+from jax_ext.integrate import simpson
 from jaxopt import Bisection
 from jaxopt.base import OptStep
 from typing_extensions import TypedDict
-
-from torusimaging.jax_helpers import simpson
 
 __all__ = ["TorusImaging1D"]
 
