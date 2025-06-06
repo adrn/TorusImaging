@@ -47,10 +47,7 @@ test = [
   "pytest-cov >=3",
   "pytest-astropy",
   "pyyaml",
-]
-dev = [
-  "pytest >=7",
-  "pytest-cov >=3",
+  "nox"
 ]
 docs = [
   "sphinx>=7.0",
@@ -62,6 +59,12 @@ docs = [
   "pydata-sphinx-theme",
   "myst_nb",
   "gala"
+]
+dev = [
+  "torusimaging[test,docs]",
+  "ipykernel",
+  "jupyter_client",
+  "pre-commit",
 ]
 
 [project.urls]
