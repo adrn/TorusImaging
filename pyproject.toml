@@ -12,7 +12,7 @@ description = "Inferring the Galactic mass distribution with stellar labels"
 readme = "README.md"
 keywords = ["astronomy", "galactic dynamics", "dynamics"]
 license.file = "LICENSE"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   "Intended Audience :: Science/Research",
   "Intended Audience :: Developers",
@@ -21,36 +21,35 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
 ]
 dynamic = ["version"]
 dependencies = [
-  "numpy>=1.20",
-  "scipy>=1.9",
-  "astropy>=5.1",
-  "pyyaml",
-  "gala",
+  "astropy>=7.0",
+  "blackjax",
   "jax",
   "jaxlib",
   "jaxopt",
-  "jax_cosmo",
+  "jax-ext @ git+https://github.com/adrn/jax-ext",
   "matplotlib",
-  "blackjax"
+  "numpy>=2",
+  "scipy>=1.9",
+  "unxt"
 ]
 
 [project.optional-dependencies]
 test = [
-  "pytest >=6",
+  "pytest >=7",
   "pytest-cov >=3",
   "pytest-astropy",
   "pyyaml",
 ]
 dev = [
-  "pytest >=6",
+  "pytest >=7",
   "pytest-cov >=3",
 ]
 docs = [
@@ -61,7 +60,8 @@ docs = [
   "scipy",
   "sphinx-automodapi",
   "pydata-sphinx-theme",
-  "myst_nb"
+  "myst_nb",
+  "gala"
 ]
 
 [project.urls]
@@ -74,6 +74,7 @@ Changelog = "https://github.com/adrn/torusimaging/releases"
 [tool.hatch]
 version.source = "vcs"
 build.hooks.vcs.version-file = "src/torusimaging/_version.py"
+metadata.allow-direct-references = true
 
 [tool.hatch.version.raw-options]
 local_scheme = "no-local-version"
@@ -105,7 +106,7 @@ port.exclude_lines = [
 
 [tool.mypy]
 files = ["src", "tests"]
-python_version = "3.10"
+python_version = "3.12"
 warn_unused_configs = true
 strict = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
@@ -170,7 +171,7 @@ ignore = [
 "src/torusimaging/model_helpers.py" = ["PD008"]
 
 [tool.pylint]
-py-version = "3.10"
+py-version = "3.12"
 ignore-paths = [".*/_version.py"]
 reports.output-format = "colorized"
 similarities.ignore-imports = "yes"
