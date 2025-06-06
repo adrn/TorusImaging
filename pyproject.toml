@@ -131,7 +131,8 @@ module = [
   "astroquery.*",
   "dustmaps.*",
   "jaxopt.*",
-  "gala.*"
+  "gala.*",
+  "nox.*"
 ]
 ignore_missing_imports = true
 
