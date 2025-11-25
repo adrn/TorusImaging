@@ -182,7 +182,7 @@ class TorusImaging1D:
             check_bracket=False,
             **Bisection_kwargs,
         )
-        return float(bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params)
+        return bisec.run(r, rrz=r, tt_prime=theta_e, ee_params=e_params).params
 
     @partial(jax.jit, static_argnames=["self"])
     def _get_pos(
@@ -225,7 +225,7 @@ class TorusImaging1D:
         r = self._get_r(r_e, th_e, params["e_params"])
         return self.label_func(r, **params["label_params"])
 
-    @partial(jax.jit, static_argnames=["self", "N_grid", "Bisection_kwargs"])
+    @partial(jax.jit, static_argnames=["self", "N_grid"])
     def _get_T_J_theta(
         self,
         pos: float,
