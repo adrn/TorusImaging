@@ -144,6 +144,7 @@ class TorusImaging1DSpline(TorusImaging1D):
         label_knots_spacing_power: float = 1.0,
         e_knots_spacing_power: float = 1.0,
         re_max_factor: float = 1.0,
+        bounds: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> tuple["TorusImaging1DSpline", dict[str, Any], TorusImaging1DParams]:
         """
@@ -171,6 +172,23 @@ class TorusImaging1DSpline(TorusImaging1D):
             `False`, no regularization is applied.
         units
             A Gala :class:`gala.units.UnitSystem` instance.
+        label_knots_spacing_power
+            If ``label_knots`` is an integer number of knots, this controls the spacing
+            of the knots. The knots are placed between 0 and ``re_max_factor`` times
+            the estimated maximum elliptical radius in the data, with spacing such that
+            the spacing in r^``label_knots_spacing_power`` is uniform.
+        e_knots_spacing_power
+            If the values in ``e_knots`` are integers number of knots, this controls
+            the spacing of the knots. The knots are placed between 0 and
+            ``re_max_factor`` times the estimated maximum elliptical radius in the
+            data, with spacing such that the spacing in r^``e_knots_spacing_power``
+            is uniform.
+        re_max_factor
+            A factor to multiply the estimated maximum elliptical radius in the data
+            by to set the maximum knot position.
+        bounds
+            If provided, this dictionary of parameter bounds is used instead of
+            estimating bounds automatically.
         **kwargs
             All other keyword arguments are passed to the constructor.
         """
@@ -178,7 +196,8 @@ class TorusImaging1DSpline(TorusImaging1D):
         import numpy as np
         from astropy.constants import G  # pylint: disable = no-name-in-module
 
-        bounds = {}
+        if bounds is None:
+            bounds = {}
 
         # TODO: assume binned data - but should it be particle data?
         init_Omega = data.estimate_Omega(binned_data)
@@ -244,12 +263,15 @@ class TorusImaging1DSpline(TorusImaging1D):
         )
         label0_bounds = x0 + np.array([-label_5span, label_5span])
 
-        bounds["label_params"] = {
-            "label_vals": (
-                np.concatenate(([label0_bounds[0]], dlabel_dpos_bounds[0])),
-                np.concatenate(([label0_bounds[1]], dlabel_dpos_bounds[1])),
-            )
-        }
+        bounds.setdefault(
+            "label_params",
+            {
+                "label_vals": (
+                    np.concatenate(([label0_bounds[0]], dlabel_dpos_bounds[0])),
+                    np.concatenate(([label0_bounds[1]], dlabel_dpos_bounds[1])),
+                )
+            },
+        )
 
         # -----------------------------------------------------------------------------
         # e functions: knots, bounds, and initial parameters
@@ -270,7 +292,7 @@ class TorusImaging1DSpline(TorusImaging1D):
         e_signs = {m: e_signs.get(m, default_e_signs[m]) for m in e_knots}
 
         # Use some hard-set heuristics for e function parameter bounds
-        e_bounds = {}
+        e_bounds = bounds.get("e_params", {})
         for m, n in e_n_knots.items():
             # TODO: hard-set magic numbers - both are truly arbitrary
             # Bounds for e functions, in log-space
@@ -322,12 +344,12 @@ class TorusImaging1DSpline(TorusImaging1D):
         # Other parameter bounds:
         # Wide, physical bounds for the log-midplane density
         dens0_bounds = [0.001, 100] * u.Msun / u.pc**3
-        bounds["ln_Omega0"] = 0.5 * np.log(
-            (4 * np.pi * G * dens0_bounds).decompose(units).value
+        bounds.setdefault(
+            "ln_Omega0",
+            0.5 * np.log((4 * np.pi * G * dens0_bounds).decompose(units).value),
         )
-        bounds["pos0"] = ([-1.0, 1.0] * u.kpc).decompose(units).value
-        bounds["vel0"] = ([-100.0, 100.0] * u.km / u.s).decompose(units).value
-
+        bounds.setdefault("pos0", ([-1.0, 1.0] * u.kpc).decompose(units).value)
+        bounds.setdefault("vel0", ([-100.0, 100.0] * u.km / u.s).decompose(units).value)
         init_params = obj.estimate_init_params(binned_data, bounds)
 
         # Need to scale the bounds of the label function derivatives by sqrt(Omega)
