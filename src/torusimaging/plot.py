@@ -1,6 +1,6 @@
 """Utilities for plotting torusimaging models and data."""
 
-__all__ = ["plot_data_models_residual", "plot_spline_functions"]
+__all__ = ["plot_data_model_residual", "plot_spline_functions"]
 
 import astropy.units as u
 import matplotlib as mpl
@@ -14,7 +14,7 @@ from .model import TorusImaging1D
 from .model_spline import TorusImaging1DSpline
 
 
-def plot_data_models_residual(
+def plot_data_model_residual(
     binned_data: dict[str, u.Quantity | npt.ArrayLike],
     model: TorusImaging1D,
     params_fit: dict,
@@ -23,6 +23,9 @@ def plot_data_models_residual(
     vlim_residual: float | None = None,
     residual_normalization: npt.ArrayLike | None = None,
     usys: UnitSystem | None = None,
+    pos_label: str = "pos",
+    vel_label: str = "vel",
+    x_coord: str = "vel",
 ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
     """Make a 4 panel figure showing data (number counts of stars in z-vz), initial
     model, fitted model, and residual of the fitted model
@@ -50,9 +53,23 @@ def plot_data_models_residual(
     usys
         The unit system to use for plotting. If None, will use the unit system of the
         model.
+    pos_label
+        The label for the position coordinate. Default is "pos".
+    vel_label
+        The label for the velocity coordinate. Default is "vel".
+    x_coord
+        Which coordinate to plot on the x-axis, either "vel" or "pos". Default is
+        "vel".
     """
     if usys is None:
         usys = model.units
+
+    if x_coord not in ("vel", "pos"):
+        raise ValueError("x_coord must be 'vel' or 'pos'")
+
+    y_coord = "pos" if x_coord == "vel" else "vel"
+    x_label = vel_label if x_coord == "vel" else pos_label
+    y_label = pos_label if x_coord == "vel" else vel_label
 
     bd = {
         k: v.decompose(usys).value if hasattr(v, "unit") else v
@@ -82,19 +99,19 @@ def plot_data_models_residual(
         constrained_layout=True,
     )
 
-    cs = axes[0].pcolormesh(bd["vel"], bd["pos"], bd["label"], **vlim)
+    cs = axes[0].pcolormesh(bd[x_coord], bd[y_coord], bd["label"], **vlim)
 
     i = 1
 
     if params_init is not None:
         # Initial model:
         model0_H = model_func(pos=bd["pos"], vel=bd["vel"], params=params_init)
-        cs = axes[1].pcolormesh(bd["vel"], bd["pos"], model0_H, **vlim)
+        cs = axes[1].pcolormesh(bd[x_coord], bd[y_coord], model0_H, **vlim)
         i += 1
 
     # Fitted model:
     model_H = model_func(pos=bd["pos"], vel=bd["vel"], params=params_fit)
-    cs = axes[i].pcolormesh(bd["vel"], bd["pos"], model_H, **vlim)
+    cs = axes[i].pcolormesh(bd[x_coord], bd[y_coord], model_H, **vlim)
     fig.colorbar(cs, ax=axes[: i + 1], aspect=40)
 
     # Residual:
@@ -112,8 +129,8 @@ def plot_data_models_residual(
         vlim_residual = (-vlim_residual, vlim_residual)  # pylint: disable=E1130
 
     cs = axes[i + 1].pcolormesh(
-        bd["vel"],
-        bd["pos"],
+        bd[x_coord],
+        bd[y_coord],
         resid,
         vmin=vlim_residual[0],
         vmax=vlim_residual[1],
@@ -122,9 +139,14 @@ def plot_data_models_residual(
     )
     fig.colorbar(cs, ax=axes[i + 1], aspect=40)
 
+    pos_unit = usys["length"]
+    vel_unit = usys["length"] / usys["time"]
+    x_unit = vel_unit if x_coord == "vel" else pos_unit
+    y_unit = pos_unit if x_coord == "vel" else vel_unit
+
     for ax in axes:
-        ax.set_xlabel(f'$v_z$ [{usys["length"] / usys["time"]:latex_inline}]')
-    axes[0].set_ylabel(f'$z$ [{usys["length"]:latex_inline}]')
+        ax.set_xlabel(f"{x_label} [{x_unit:latex_inline}]")
+    axes[0].set_ylabel(f"{y_label} [{y_unit:latex_inline}]")
 
     axes[0].set_title("data")
     i = 1
