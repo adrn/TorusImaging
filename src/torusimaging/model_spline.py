@@ -1,7 +1,7 @@
 import inspect
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -98,6 +98,10 @@ class TorusImaging1DSpline(TorusImaging1D):
         log-likelihood.
     units
         A Gala :class:`gala.units.UnitSystem` instance.
+    elliptical_angle_convention
+        A string that indicates the order of position and velocity in the elliptical
+        angle definition. "pv" indicates tan{theta_e} = pos / vel, and "vp"
+        indicates tan{theta_e} = vel / pos.
     """
 
     def __init__(
@@ -107,6 +111,7 @@ class TorusImaging1DSpline(TorusImaging1D):
         e_signs: dict[int, float | int],
         regularization_func: Callable[[Any], jax.Array] | None = None,
         units: UnitSystem = galactic,
+        elliptical_angle_convention: Literal["pv", "vp"] = "pv",
     ):
         self._label_knots = jnp.array(label_knots)
         label_func = partial(label_func_base, knots=self._label_knots)
@@ -118,7 +123,13 @@ class TorusImaging1DSpline(TorusImaging1D):
             for m, knots in self._e_knots.items()
         }
 
-        super().__init__(label_func, e_funcs, regularization_func, units)
+        super().__init__(
+            label_func,
+            e_funcs,
+            regularization_func,
+            units,
+            elliptical_angle_convention=elliptical_angle_convention,
+        )
 
     def __reduce__(self):
         return (
@@ -328,7 +339,7 @@ class TorusImaging1DSpline(TorusImaging1D):
                         "this class method"
                     )
                     raise ValueError(msg)
-                reg_kw[arg_name] = kwargs.get(arg_name, p.default)
+                reg_kw[arg_name] = kwargs.pop(arg_name, p.default)
 
             reg_func = partial(regularization_func, **reg_kw)
 
@@ -339,6 +350,7 @@ class TorusImaging1DSpline(TorusImaging1D):
             e_signs=e_signs,
             regularization_func=reg_func,
             units=units,
+            **kwargs,
         )
 
         # Other parameter bounds:

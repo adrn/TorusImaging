@@ -73,6 +73,10 @@ class TorusImaging1D:
     units
         The unit system to work in. Default is to use the "galactic" unit system from
         Gala: (kpc, Myr, Msun, radian).
+    elliptical_angle_convention
+        A string that indicates the order of position and velocity in the elliptical
+        angle definition. "pv" indicates tan{theta_e} = pos / vel, and "vp"
+        indicates tan{theta_e} = vel / pos.
 
     """
 
@@ -82,6 +86,7 @@ class TorusImaging1D:
         e_funcs: dict[int, Callable[[float], float]],
         regularization_func: Callable[[Any], float] | None = None,
         units: UnitSystem = galactic,
+        elliptical_angle_convention: Literal["pv", "vp"] = "pv",
     ):
         self.label_func = jax.jit(label_func)
         self.e_funcs = {int(m): jax.jit(e_func) for m, e_func in e_funcs.items()}
@@ -92,6 +97,14 @@ class TorusImaging1D:
         if regularization_func is None:
             regularization_func = lambda *_, **__: 0.0  # noqa: E731
         self.regularization_func = regularization_func
+
+        self.elliptical_angle_convention = elliptical_angle_convention
+        if self.elliptical_angle_convention not in ["pv", "vp"]:
+            raise ValueError(
+                "elliptical_angle_convention must be either 'pv' or 'vp', to indicate "
+                "the order of position and velocity in the elliptical angle "
+                "definition. pv = arctan(pos, vel) and vp = arctan(vel, pos)."
+            )
 
     # ---------------------------------------------------------------------------------
     # Internal functions used within likelihood functions:
@@ -112,7 +125,11 @@ class TorusImaging1D:
         y = (pos - pos0) * jnp.sqrt(jnp.exp(ln_Omega0))
 
         r_e = jnp.sqrt(x**2 + y**2)
-        t_e = jnp.arctan2(y, x)
+        t_e = (
+            jnp.arctan2(y, x)
+            if self.elliptical_angle_convention == "pv"
+            else jnp.arctan2(x, y)
+        )
 
         return r_e, t_e
 
