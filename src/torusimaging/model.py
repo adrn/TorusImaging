@@ -391,15 +391,39 @@ class TorusImaging1D:
         es = self._get_es(r_e, params["e_params"])
         de_dres = self._get_de_dr_es(r_e, params["e_params"])
 
+        # The sign factor comes from evaluating cos(m * theta_e) in the limit vel -> 0.
+        # The limit depends on the angle convention:
+        #
+        # - "pv" convention: theta_e = arctan2(pos*sqrt(Om), vel/sqrt(Om))
+        #   When vel -> 0: theta_e -> ±pi/2 (sign depends on sign of pos - pos0)
+        #   cos(m * pi/2) = 0 for odd m, (-1)^(m/2) for even m
+        #
+        # - "vp" convention: theta_e = arctan2(vel/sqrt(Om), pos*sqrt(Om))
+        #   When vel -> 0: theta_e -> 0 (if pos > pos0) or pi (if pos < pos0)
+        #   cos(m * 0) = 1 for all m; cos(m * pi) = (-1)^m for all m
+        #
+        # For radial dynamics with asymmetric orbits (angular momentum barrier),
+        # odd harmonics are needed and DO contribute to the acceleration.
+        if self.elliptical_angle_convention == "pv":
+            # cos(m * pi/2): 0 for odd m, (-1)^(m/2) for even m
+            def sign_factor(m):
+                return jnp.where(m % 2 == 0, (-1.0) ** (m // 2), 0.0)
+
+        else:  # "vp"
+            # cos(m * theta_e) where theta_e = 0 if pos > pos0, pi if pos < pos0
+            # cos(m * 0) = 1, cos(m * pi) = (-1)^m
+            def sign_factor(m):
+                return jnp.where(pos >= params["pos0"], 1.0, (-1.0) ** m)
+
         numer = 1 + jnp.sum(
             jnp.array(
-                [(-1) ** (m / 2) * (es[m] + de_dres[m] * r_e) for m in self.e_funcs]
+                [sign_factor(m) * (es[m] + de_dres[m] * r_e) for m in self.e_funcs]
             )
         )
         denom = 1 + jnp.sum(
             jnp.array(
                 [
-                    (-1) ** (m / 2) * (es[m] * (1 - m**2) + de_dres[m] * r_e)
+                    sign_factor(m) * (es[m] * (1 - m**2) + de_dres[m] * r_e)
                     for m in self.e_funcs
                 ]
             )
